@@ -33,9 +33,9 @@
             AuthStateProvider.NotifyAuthStateChanged();
             await Redirector.RedirectToDashboardAsync();
         }
-        catch
+        catch (Exception ex)
         {
-            error = "Invalid credentials";
+            error = ex.Message;
         }
         finally
         {

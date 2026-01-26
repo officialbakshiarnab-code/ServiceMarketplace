@@ -15,4 +15,8 @@
     <ProjectReference Include="..\ServiceMarketplace.UI.Shared\ServiceMarketplace.UI.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="wwwroot\sample-data\" />
+  </ItemGroup>
+
 </Project>

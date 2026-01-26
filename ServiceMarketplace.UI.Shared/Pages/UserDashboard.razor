@@ -2,6 +2,7 @@
 @using ServiceMarketplace.UI.Shared.Requests
 @using ServiceMarketplace.UI.Shared.Auth
 @inject NavigationManager Nav
+@inject AuthRedirector Redirector
 @inject AuthState AuthState
 
 @code {
@@ -12,23 +13,30 @@
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
         _role = await AuthState.GetRoleAsync();
+
+        if (!_isAuthenticated)
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        if (!string.Equals(_role, "User", StringComparison.Ordinal))
+        {
+            await Redirector.RedirectToDashboardAsync();
+        }
     }
 }
 
-<div class="page">
-    <h2>User Dashboard</h2>
+<div class="container py-4">
+    <h2 class="mb-3">User Dashboard</h2>
 
-    @if (!_isAuthenticated)
-    {
-        <p>Please login to continue.</p>
-        <button class="primary" @onclick='@(() => Nav.NavigateTo("/login"))'>Go to Login</button>
-    }
-    else if (!string.Equals(_role, "User", StringComparison.Ordinal))
-    {
-        <p>You are not authorized.</p>
-    }
-    else
-    {
-        <CreateServiceRequest />
-    }
+    <AuthorizeView Roles="User">
+        <Authorized>
+            <CreateServiceRequest />
+            <MyRequestsList />
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-warning" role="alert">Redirecting...</div>
+        </NotAuthorized>
+    </AuthorizeView>
 </div>

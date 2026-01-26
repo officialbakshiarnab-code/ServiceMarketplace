@@ -1,11 +1,32 @@
 ﻿@using ServiceMarketplace.UI.Shared.Auth
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Nav
 
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(ServiceMarketplace.UI.Shared.Auth.Login).Assembly"
             AdditionalAssemblies="new[] { typeof(MauiProgram).Assembly }">
         <Found Context="routeData">
-            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                <Authorizing>
+                    <LayoutView Layout="@typeof(Layout.MainLayout)">
+                        <p>Authorizing...</p>
+                    </LayoutView>
+                </Authorizing>
+                <NotAuthorized>
+                    @if (!_redirected)
+                    {
+                        _redirected = true;
+                        Nav.NavigateTo("/login", forceLoad: false);
+                    }
+                </NotAuthorized>
+            </AuthorizeRouteView>
             <FocusOnNavigate RouteData="@routeData" Selector="h1" />
         </Found>
     </Router>
 </CascadingAuthenticationState>
+
+@code {
+    private bool _redirected;
+}

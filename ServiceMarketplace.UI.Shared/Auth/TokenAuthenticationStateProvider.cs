@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
-using ServiceMarketplace.UI.Shared.Services;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
 

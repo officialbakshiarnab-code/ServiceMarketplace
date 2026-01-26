@@ -36,9 +36,9 @@
             await AuthClient.RegisterAsync(model);
             Nav.NavigateTo("/login");
         }
-        catch
+        catch (Exception ex)
         {
-            error = "Registration failed";
+            error = ex.Message;
         }
         finally
         {

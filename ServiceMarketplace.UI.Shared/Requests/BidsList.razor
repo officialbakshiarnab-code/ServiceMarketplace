@@ -1,0 +1,85 @@
+@using ServiceMarketplace.Application.DTOs
+@inject BidsApiClient BidsClient
+
+<div class="card mt-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <h5 class="mb-0">Bids</h5>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ReloadAsync" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+
+        @if (_loading)
+        {
+            <p class="text-muted mb-0">Loading...</p>
+        }
+        else if (_items.Count == 0)
+        {
+            <p class="text-muted mb-0">No bids.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var b in _items)
+                {
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <div>
+                                <strong>@b.Amount.ToString("0.00")</strong>
+                                <span class="text-muted"> • @b.ProposedDateTime.ToString("g")</span>
+                            </div>
+                            <small class="text-muted">@b.Status</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public Guid RequestId { get; set; }
+
+    private bool _loading;
+    private string? _error;
+    private List<BidDto> _items = [];
+
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        if (RequestId == Guid.Empty)
+            return;
+
+        _error = null;
+        _loading = true;
+
+        try
+        {
+            _items = await BidsClient.GetBidsForRequestAsync(RequestId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _items = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}
