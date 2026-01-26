@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
 
+// Purpose: Restores auth state from stored JWT and keeps UI auth state consistent.
 public sealed class TokenAuthenticationStateProvider(ITokenStorage tokenStorage) : AuthenticationStateProvider
 {
     private static readonly ClaimsPrincipal Anonymous = new(new ClaimsIdentity());

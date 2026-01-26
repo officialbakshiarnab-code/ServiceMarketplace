@@ -7,6 +7,11 @@ using ServiceMarketplace.UI.Shared.Requests;
 using ServiceMarketplace.UI.Web.Services;
 using ServiceMarketplace.UI.Web;
 
+// Purpose: Blazor WebAssembly host.
+// - UI.Shared provides shared Razor components, DTOs, and auth logic.
+// - Configuration (ApiBaseUrl) is loaded from appsettings.json.
+// - HttpClient uses ApiBaseUrl; never hardcode URLs or tokens.
+
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 builder.RootComponents.Add<App>("#app");

@@ -2,6 +2,7 @@
 
 namespace ServiceMarketplace.Application.DTOs;
 
+// Purpose: Bid details returned to clients.
 public class BidDto
 {
     public Guid Id { get; set; }

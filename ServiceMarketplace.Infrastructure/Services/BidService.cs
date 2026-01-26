@@ -8,6 +8,7 @@ using ServiceMarketplace.Infrastructure.Data;
 
 namespace ServiceMarketplace.Infrastructure.Services;
 
+// Purpose: Business logic for placing and listing bids.
 public class BidService : IBidService
 {
     private readonly AppDbContext _context;

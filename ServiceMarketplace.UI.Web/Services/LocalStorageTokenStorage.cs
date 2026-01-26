@@ -3,6 +3,7 @@ using ServiceMarketplace.UI.Shared.Auth;
 
 namespace ServiceMarketplace.UI.Web.Services;
 
+// Purpose: Web token storage using browser localStorage.
 public sealed class LocalStorageTokenStorage : ITokenStorage
 {
     private const string TokenKey = "auth_token";

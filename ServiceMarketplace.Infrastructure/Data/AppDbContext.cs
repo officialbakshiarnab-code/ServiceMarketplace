@@ -4,6 +4,7 @@ using ServiceMarketplace.Domain.Entities;
 
 namespace ServiceMarketplace.Infrastructure.Data;
 
+// Purpose: EF Core DbContext for Identity + marketplace entities.
 public class AppDbContext : IdentityDbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options)

@@ -2,6 +2,7 @@
 
 namespace ServiceMarketplace.Application.Interfaces;
 
+// Purpose: Application contract for service request use cases.
 public interface IServiceRequestService
 {
     Task<Guid> CreateAsync(CreateServiceRequestDto dto, string userId);

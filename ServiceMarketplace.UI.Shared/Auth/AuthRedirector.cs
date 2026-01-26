@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
 
+// Purpose: Role-aware navigation to the correct dashboard after login.
 public sealed class AuthRedirector(AuthenticationStateProvider authenticationStateProvider, NavigationManager navigationManager)
 {
     private readonly AuthenticationStateProvider _authenticationStateProvider = authenticationStateProvider;

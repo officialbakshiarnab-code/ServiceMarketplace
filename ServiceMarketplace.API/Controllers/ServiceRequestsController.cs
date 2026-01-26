@@ -8,6 +8,8 @@ namespace ServiceMarketplace.API.Controllers;
 
 [ApiController]
 [Route("api/requests")]
+// Purpose: Manage service requests for users and providers.
+// Roles: User (create/accept), ServiceProvider (open/nearby list).
 public class ServiceRequestsController : ControllerBase
 {
     private readonly IServiceRequestService _service;

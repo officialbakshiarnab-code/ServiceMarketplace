@@ -5,6 +5,7 @@ using System.Net;
 
 namespace ServiceMarketplace.API.Middleware;
 
+// Purpose: Centralized exception handling that returns ProblemDetails for UI clients.
 public class ExceptionHandlingMiddleware
 {
     private readonly RequestDelegate _next;

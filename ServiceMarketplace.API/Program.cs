@@ -12,6 +12,13 @@ using ServiceMarketplace.Infrastructure.Data;
 using ServiceMarketplace.Infrastructure.Services;
 using System.Text;
 
+// Purpose: Web API host for Service Marketplace.
+// - Controllers: HTTP endpoints (Auth, Requests, Bids)
+// - Filters: cross-cutting validation
+// - Middleware: consistent error handling
+// - Models: API request/response contracts
+// - Infrastructure: data + services wired via DI
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ==============================

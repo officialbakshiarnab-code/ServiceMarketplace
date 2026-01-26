@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace ServiceMarketplace.API.Filters;
 
+// Purpose: Converts model state errors into FluentValidation exceptions for uniform handling.
 public class ValidateModelFilter : IActionFilter
 {
     public void OnActionExecuting(ActionExecutingContext context)

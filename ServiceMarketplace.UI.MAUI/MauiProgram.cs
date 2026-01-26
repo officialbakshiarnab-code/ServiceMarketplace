@@ -8,6 +8,11 @@ using Microsoft.Extensions.Configuration;
 using System.Text;
 using System.Text.Json;
 
+// Purpose: MAUI Blazor Hybrid host.
+// - Loads appsettings.json from app package for ApiBaseUrl.
+// - Uses UI.Shared for shared components/auth/DTOs.
+// - HttpClient uses ApiBaseUrl; never hardcode URLs or tokens.
+
 namespace ServiceMarketplace.UI.MAUI;
 
 public static class MauiProgram

@@ -10,6 +10,8 @@ namespace ServiceMarketplace.API.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+// Purpose: Authentication endpoints for registration and login.
+// Notes: Uses ASP.NET Identity; returns JWT tokens for the UI clients.
 public class AuthController : ControllerBase
 {
     private readonly UserManager<IdentityUser> _userManager;

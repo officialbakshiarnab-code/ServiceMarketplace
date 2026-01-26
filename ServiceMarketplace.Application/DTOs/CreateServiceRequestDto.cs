@@ -1,5 +1,6 @@
 ﻿namespace ServiceMarketplace.Application.DTOs;
 
+// Purpose: Input payload when a user creates a service request.
 public class CreateServiceRequestDto
 {
     public string Title { get; set; } = string.Empty;

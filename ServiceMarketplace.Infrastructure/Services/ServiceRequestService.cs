@@ -8,6 +8,7 @@ using ServiceMarketplace.Infrastructure.Data;
 
 namespace ServiceMarketplace.Infrastructure.Services;
 
+// Purpose: Business logic for service requests (create, search, accept bids).
 public class ServiceRequestService : IServiceRequestService
 {
     private readonly AppDbContext _context;

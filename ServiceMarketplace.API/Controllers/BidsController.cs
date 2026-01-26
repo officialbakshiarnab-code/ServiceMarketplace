@@ -8,6 +8,8 @@ namespace ServiceMarketplace.API.Controllers;
 
 [ApiController]
 [Route("api/bids")]
+// Purpose: Bid operations for service providers and users.
+// Roles: ServiceProvider (place bids), User (view bids for own request).
 public class BidsController : ControllerBase
 {
     private readonly IBidService _service;

@@ -2,6 +2,7 @@
 
 namespace ServiceMarketplace.Application.DTOs;
 
+// Purpose: Service request details returned to clients.
 public class ServiceRequestDto
 {
     public Guid Id { get; set; }

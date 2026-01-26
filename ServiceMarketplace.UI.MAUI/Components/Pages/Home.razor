@@ -1,34 +1,16 @@
 ﻿@page "/"
-@using Microsoft.AspNetCore.Components.Authorization
-@using ServiceMarketplace.UI.Shared.Auth
-@inject AuthRedirector Redirector
-@inject AuthState AuthState
+@using Microsoft.AspNetCore.Components
 @inject NavigationManager Nav
 
 <div class="container py-4">
-    <AuthorizeView>
-        <Authorized>
-            <p class="text-muted mb-0">Redirecting...</p>
-        </Authorized>
-        <NotAuthorized>
-            <h1 class="mb-4">Service Marketplace</h1>
-            <div class="d-flex gap-2">
-                <button class="btn btn-primary" @onclick="GoToLogin">Login</button>
-                <button class="btn btn-outline-primary" @onclick="GoToRegister">Register</button>
-            </div>
-        </NotAuthorized>
-    </AuthorizeView>
+    <h1 class="mb-4">Service Marketplace</h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" @onclick="GoToLogin">Login</button>
+        <button class="btn btn-outline-primary" @onclick="GoToRegister">Register</button>
+    </div>
 </div>
 
 @code {
-    protected override async Task OnInitializedAsync()
-    {
-        if (await AuthState.IsAuthenticatedAsync())
-        {
-            await Redirector.RedirectToDashboardAsync();
-        }
-    }
-
     private void GoToLogin() => Nav.NavigateTo("/login");
     private void GoToRegister() => Nav.NavigateTo("/register");
 }

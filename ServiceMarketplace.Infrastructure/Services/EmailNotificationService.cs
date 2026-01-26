@@ -3,6 +3,7 @@ using ServiceMarketplace.Application.Interfaces;
 
 namespace ServiceMarketplace.Infrastructure.Services;
 
+// Purpose: Notification provider for request/bid events (currently logs only).
 public class EmailNotificationService : INotificationService
 {
     private readonly ILogger<EmailNotificationService> _logger;

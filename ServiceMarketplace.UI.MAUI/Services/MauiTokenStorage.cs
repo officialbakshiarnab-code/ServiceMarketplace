@@ -3,6 +3,7 @@ using ServiceMarketplace.UI.Shared.Auth;
 
 namespace ServiceMarketplace.UI.MAUI.Services;
 
+// Purpose: MAUI token storage using SecureStorage.
 public sealed class MauiTokenStorage : ITokenStorage
 {
     public Task SaveTokenAsync(string token) => SecureStorage.SetAsync("auth_token", token);

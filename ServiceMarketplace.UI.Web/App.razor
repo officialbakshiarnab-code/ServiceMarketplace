@@ -1,33 +1,46 @@
 ﻿@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
 @inject NavigationManager Nav
+
 <CascadingAuthenticationState>
-    <Router AppAssembly="@typeof(App).Assembly"
-            AdditionalAssemblies="new[] { typeof(ServiceMarketplace.UI.Shared.Auth.Login).Assembly }">
-        <Found Context="routeData">
-            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
-                <Authorizing>
+    <ErrorBoundary>
+        <ChildContent>
+            <Router AppAssembly="@typeof(App).Assembly"
+                    AdditionalAssemblies="new[] { typeof(ServiceMarketplace.UI.Shared.Auth.Login).Assembly }">
+                <Found Context="routeData">
+                    <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                        <Authorizing>
+                            <LayoutView Layout="@typeof(MainLayout)">
+                                <p>Authorizing...</p>
+                            </LayoutView>
+                        </Authorizing>
+                        <NotAuthorized>
+                            @if (!_redirected)
+                            {
+                                _redirected = true;
+                                Nav.NavigateTo("/login", forceLoad: false);
+                            }
+                        </NotAuthorized>
+                    </AuthorizeRouteView>
+                    <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+                </Found>
+                <NotFound>
                     <LayoutView Layout="@typeof(MainLayout)">
-                        <p>Authorizing...</p>
+                        <p role="alert">Sorry, there's nothing at this address.</p>
                     </LayoutView>
-                </Authorizing>
-                <NotAuthorized>
-                    @if (!_redirected)
-                    {
-                        _redirected = true;
-                        Nav.NavigateTo("/login", forceLoad: false);
-                    }
-                </NotAuthorized>
-            </AuthorizeRouteView>
-            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-        </Found>
-        <NotFound>
+                </NotFound>
+            </Router>
+        </ChildContent>
+        <ErrorContent>
             <LayoutView Layout="@typeof(MainLayout)">
-                <p role="alert">Sorry, there's nothing at this address.</p>
+                <div class="alert alert-danger m-3" role="alert">
+                    An unexpected error occurred. Please reload the page.
+                </div>
             </LayoutView>
-        </NotFound>
-    </Router>
+        </ErrorContent>
+    </ErrorBoundary>
 </CascadingAuthenticationState>
 
 @code {

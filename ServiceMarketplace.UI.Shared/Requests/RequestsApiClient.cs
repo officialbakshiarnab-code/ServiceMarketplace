@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.UI.Shared.Auth;
 
@@ -7,6 +8,7 @@ namespace ServiceMarketplace.UI.Shared.Requests;
 
 public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage tokenStorage)
 {
+    // Purpose: API client for service request endpoints (create/open/nearby).
     private readonly HttpClient _httpClient = httpClient;
     private readonly ITokenStorage _tokenStorage = tokenStorage;
 
@@ -60,7 +62,42 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         try
         {
             var text = await response.Content.ReadAsStringAsync();
-            return string.IsNullOrWhiteSpace(text) ? null : text;
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
+                    return msg.GetString();
+
+                if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
+                    return err.GetString();
+
+                if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+                {
+                    var lines = new List<string>();
+                    foreach (var prop in errors.EnumerateObject())
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            var messages = prop.Value.EnumerateArray()
+                                .Where(e => e.ValueKind == JsonValueKind.String)
+                                .Select(e => e.GetString())
+                                .Where(s => !string.IsNullOrWhiteSpace(s));
+
+                            var joined = string.Join("; ", messages!);
+                            if (!string.IsNullOrWhiteSpace(joined))
+                                lines.Add($"{prop.Name}: {joined}");
+                        }
+                    }
+
+                    if (lines.Count > 0)
+                        return string.Join(" | ", lines);
+                }
+            }
+
+            return text;
         }
         catch
         {
