@@ -1,0 +1,61 @@
+@page "/provider/requests/{RequestId:guid}"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Requests
+@inject RequestsApiClient RequestsClient
+@inject NavigationManager Nav
+
+<div class="card">
+    <button class="back" @onclick="GoBack">Back</button>
+
+    @if (_loading)
+    {
+        <p>Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="error">@_error</div>
+    }
+    else if (_request is null)
+    {
+        <p>Request not found in current search radius.</p>
+    }
+    else
+    {
+        <h3>@_request.Title</h3>
+        <p>@_request.Description</p>
+
+        <div class="meta">
+            <div><strong>Distance:</strong> @_request.DistanceKm.ToString("0.00") km</div>
+            <div><strong>Location:</strong> @_request.Latitude, @_request.Longitude</div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Guid RequestId { get; set; }
+
+    private readonly NearbySearchDto _search = new() { Latitude = 0, Longitude = 0, RadiusKm = 50 };
+    private bool _loading = true;
+    private string? _error;
+    private ServiceRequestDto? _request;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var results = await RequestsClient.NearbyAsync(_search);
+            _request = results.FirstOrDefault(r => r.Id == RequestId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void GoBack() => Nav.NavigateTo("/provider/dashboard");
+}

@@ -1,8 +1,9 @@
+#if TIZEN
 using System;
 using Microsoft.Maui;
 using Microsoft.Maui.Hosting;
 
-namespace ServiceMarketplace.UI.MAUI;
+namespace ServiceMarketplace.UI.MAUI.Tizen;
 
 class Program : MauiApplication
 {
@@ -14,3 +15,5 @@ class Program : MauiApplication
 		app.Run(args);
 	}
 }
+
+#endif

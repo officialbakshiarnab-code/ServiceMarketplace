@@ -1,0 +1,45 @@
+﻿@page "/login"
+@using ServiceMarketplace.UI.Shared.Auth
+@inject AuthApiClient AuthClient
+@inject TokenAuthenticationStateProvider AuthStateProvider
+@inject AuthRedirector Redirector
+
+<h3>Login</h3>
+
+<input @bind="model.Email" placeholder="Email" />
+<br />
+<input type="password" @bind="model.Password" placeholder="Password" />
+<br />
+<button @onclick="HandleLoginAsync" disabled="@_busy">Login</button>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <p style="color:red">@error</p>
+}
+
+@code {
+    private readonly LoginRequest model = new();
+    private bool _busy;
+    private string? error;
+
+    private async Task HandleLoginAsync()
+    {
+        error = null;
+        _busy = true;
+
+        try
+        {
+            await AuthClient.LoginAsync(model);
+            AuthStateProvider.NotifyAuthStateChanged();
+            await Redirector.RedirectToDashboardAsync();
+        }
+        catch
+        {
+            error = "Invalid credentials";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

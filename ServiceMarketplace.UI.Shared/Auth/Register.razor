@@ -1,0 +1,48 @@
+@page "/register"
+@using ServiceMarketplace.UI.Shared.Auth
+@inject AuthApiClient AuthClient
+@inject NavigationManager Nav
+
+<h3>Register</h3>
+
+<input @bind="model.Email" placeholder="Email" />
+<br />
+<input type="password" @bind="model.Password" placeholder="Password" />
+<br />
+<select @bind="model.Role">
+    <option value="User">User</option>
+    <option value="ServiceProvider">Service Provider</option>
+</select>
+<br />
+<button @onclick="HandleRegisterAsync" disabled="@_busy">Register</button>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <p style="color:red">@error</p>
+}
+
+@code {
+    private readonly RegisterRequest model = new() { Role = "User" };
+    private bool _busy;
+    private string? error;
+
+    private async Task HandleRegisterAsync()
+    {
+        error = null;
+        _busy = true;
+
+        try
+        {
+            await AuthClient.RegisterAsync(model);
+            Nav.NavigateTo("/login");
+        }
+        catch
+        {
+            error = "Registration failed";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

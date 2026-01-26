@@ -1,6 +1,11 @@
-﻿<Router AppAssembly="@typeof(MauiProgram).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-</Router>
+﻿@using ServiceMarketplace.UI.Shared.Auth
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(ServiceMarketplace.UI.Shared.Auth.Login).Assembly"
+            AdditionalAssemblies="new[] { typeof(MauiProgram).Assembly }">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>

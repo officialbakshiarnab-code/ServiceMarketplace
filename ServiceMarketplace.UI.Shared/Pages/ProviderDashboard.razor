@@ -1,0 +1,34 @@
+@page "/provider/dashboard"
+@using ServiceMarketplace.UI.Shared.Requests
+@using ServiceMarketplace.UI.Shared.Auth
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+@code {
+    private bool _isAuthenticated;
+    private string? _role;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAuthenticated = await AuthState.IsAuthenticatedAsync();
+        _role = await AuthState.GetRoleAsync();
+    }
+}
+
+<div class="page">
+    <h2>Provider Dashboard</h2>
+
+    @if (!_isAuthenticated)
+    {
+        <p>Please login to continue.</p>
+        <button class="primary" @onclick='@(() => Nav.NavigateTo("/login"))'>Go to Login</button>
+    }
+    else if (!string.Equals(_role, "ServiceProvider", StringComparison.Ordinal))
+    {
+        <p>You are not authorized.</p>
+    }
+    else
+    {
+        <NearbyRequestsList />
+    }
+</div>

@@ -1,4 +1,5 @@
-﻿using ObjCRuntime;
+﻿#if MACCATALYST
+using ObjCRuntime;
 using UIKit;
 
 namespace ServiceMarketplace.UI.MAUI;
@@ -12,4 +13,6 @@ public class Program
 		// you can specify it here.
 		UIApplication.Main(args, null, typeof(AppDelegate));
 	}
+
+#endif
 }

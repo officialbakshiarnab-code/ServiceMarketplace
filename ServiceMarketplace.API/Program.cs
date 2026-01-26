@@ -1,8 +1,10 @@
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ServiceMarketplace.API.Filters;
 using ServiceMarketplace.API.Middleware;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Application.Validators;
@@ -48,6 +50,38 @@ builder.Services.AddAuthentication(options =>
             Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
         )
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = async context =>
+        {
+            if (context.Handled)
+                return;
+
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "unauthorized",
+                message = "Authentication is required to access this resource.",
+                traceId = context.HttpContext.TraceIdentifier
+            });
+        },
+        OnForbidden = async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "forbidden",
+                message = "You are not allowed to access this resource.",
+                traceId = context.HttpContext.TraceIdentifier
+            });
+        }
+    };
 });
 
 // ==============================
@@ -65,8 +99,18 @@ builder.Services.AddScoped<INotificationService, EmailNotificationService>();
 // ==============================
 // CONTROLLERS + SWAGGER
 // ==============================
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<ValidateModelFilter>();
+});
+builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<CreateServiceRequestDtoValidator>();
+builder.Services.AddValidatorsFromAssemblyContaining<CreateBidDtoValidator>();
+
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.SuppressModelStateInvalidFilter = true;
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {

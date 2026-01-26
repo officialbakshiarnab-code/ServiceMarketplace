@@ -1,4 +1,5 @@
-﻿using Foundation;
+﻿#if MACCATALYST
+using Foundation;
 
 namespace ServiceMarketplace.UI.MAUI;
 
@@ -7,3 +8,5 @@ public class AppDelegate : MauiUIApplicationDelegate
 {
 	protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
 }
+
+#endif

@@ -1,4 +1,5 @@
-﻿using ObjCRuntime;
+﻿#if IOS
+using ObjCRuntime;
 using UIKit;
 
 namespace ServiceMarketplace.UI.MAUI;
@@ -13,3 +14,5 @@ public class Program
 		UIApplication.Main(args, null, typeof(AppDelegate));
 	}
 }
+
+#endif

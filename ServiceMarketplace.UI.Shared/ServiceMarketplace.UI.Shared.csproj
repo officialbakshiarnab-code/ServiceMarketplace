@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -6,17 +6,22 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-
-  <ItemGroup>
-    <SupportedPlatform Include="browser" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="9.0.11" />
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\ServiceMarketplace.Application\ServiceMarketplace.Application.csproj" />
+  </ItemGroup>
+
+  <!--
+    IMPORTANT:
+    This project is referenced by both the Blazor WebAssembly app and the .NET MAUI (BlazorWebView) app.
+    `Microsoft.AspNetCore.App` is a server-side shared framework and does not have runtime packs for
+    mobile/WASM runtime identifiers (e.g., android-arm64, iossimulator-x64, browser-wasm).
+    Referencing it here causes NETSDK1082 during cross-platform builds.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="9.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="9.0.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.5.0" />
   </ItemGroup>
 
 </Project>
