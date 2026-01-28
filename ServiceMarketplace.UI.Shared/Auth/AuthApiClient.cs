@@ -61,6 +61,36 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
     /// Attempts to extract user-friendly error message from API response.
     /// Handles various error formats: simple strings, validation errors, problem details.
     /// </summary>
+    /// <summary>
+    /// Logs out the current user by calling API and clearing local token storage.
+    /// Even if API call fails, local token is cleared to ensure logout succeeds.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Attempt to notify API of logout (records logout time in audit log)
+            using var response = await _httpClient.PostAsync("api/auth/logout", null, cancellationToken);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                // Log but don't throw - logout must always succeed locally
+                Console.WriteLine($"[AuthApiClient] Logout API call failed: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log but don't throw - network failure shouldn't prevent local logout
+            Console.WriteLine($"[AuthApiClient] Logout API exception: {ex.Message}");
+        }
+        finally
+        {
+            // Always clear token from storage, regardless of API success
+            await _tokenStorage.ClearAsync();
+        }
+    }
+
     private static async Task<string?> TryReadErrorAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try

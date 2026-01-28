@@ -32,7 +32,10 @@
 }
 
 <div class="container py-4">
-    <h2 class="mb-3">User Dashboard</h2>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">User Dashboard</h2>
+        <LogoutButton />
+    </div>
 
     <AuthorizeView Roles="User">
         <Authorized>
@@ -51,3 +54,4 @@
         </NotAuthorized>
     </AuthorizeView>
 </div>
+

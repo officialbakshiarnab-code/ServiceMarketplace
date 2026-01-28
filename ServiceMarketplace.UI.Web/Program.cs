@@ -25,10 +25,18 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 // Resolve API base URL from configuration (required)
 var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(builder.Configuration);
 
-// Configure HTTP client for API calls
-builder.Services.AddScoped(_ => new HttpClient
+// Configure HTTP client for API calls with platform identification
+builder.Services.AddScoped(sp =>
 {
-    BaseAddress = apiBaseUri
+    var httpClient = new HttpClient
+    {
+        BaseAddress = apiBaseUri
+    };
+    
+    // Add platform header for audit logging
+    httpClient.DefaultRequestHeaders.Add("X-Platform", "Web");
+    
+    return httpClient;
 });
 
 // Configure authorization

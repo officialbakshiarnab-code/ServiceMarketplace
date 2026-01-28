@@ -2,7 +2,7 @@
 
 namespace ServiceMarketplace.Domain.Entities;
 
-public class ServiceRequest : BaseEntity
+public class ServiceRequest : BaseAuditableEntity
 {
     public string CustomerId { get; set; } = null!;
 

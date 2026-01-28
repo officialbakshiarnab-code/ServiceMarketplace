@@ -48,12 +48,28 @@ public static class MauiProgram
         // Configure authorization
         builder.Services.AddAuthorizationCore();
 
-        // Configure HTTP client for API calls
+        // Configure HTTP client for API calls with platform identification
         builder.Services.AddScoped(sp =>
         {
             var config = sp.GetRequiredService<IConfiguration>();
             var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(config);
-            return new HttpClient { BaseAddress = apiBaseUri };
+            
+            var httpClient = new HttpClient { BaseAddress = apiBaseUri };
+            
+            // Add platform header for audit logging
+#if ANDROID
+            httpClient.DefaultRequestHeaders.Add("X-Platform", "MAUI-Android");
+#elif IOS
+            httpClient.DefaultRequestHeaders.Add("X-Platform", "MAUI-iOS");
+#elif WINDOWS
+            httpClient.DefaultRequestHeaders.Add("X-Platform", "MAUI-Windows");
+#elif MACCATALYST
+            httpClient.DefaultRequestHeaders.Add("X-Platform", "MAUI-MacCatalyst");
+#else
+            httpClient.DefaultRequestHeaders.Add("X-Platform", "MAUI-Unknown");
+#endif
+            
+            return httpClient;
         });
 
         // Configure authentication services

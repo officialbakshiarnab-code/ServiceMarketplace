@@ -58,4 +58,14 @@ public sealed class TokenAuthenticationStateProvider(ITokenStorage tokenStorage)
     {
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
+
+    /// <summary>
+    /// Signs out the current user by clearing token storage and notifying Blazor.
+    /// Forces immediate UI update to unauthenticated state.
+    /// </summary>
+    public async Task SignOutAsync()
+    {
+        await _tokenStorage.ClearAsync();
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(Anonymous)));
+    }
 }

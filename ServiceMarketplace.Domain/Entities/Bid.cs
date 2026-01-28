@@ -2,7 +2,7 @@
 
 namespace ServiceMarketplace.Domain.Entities;
 
-public class Bid : BaseEntity
+public class Bid : BaseAuditableEntity
 {
     public Guid ServiceRequestId { get; set; }
 

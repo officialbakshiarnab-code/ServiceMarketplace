@@ -1,0 +1,66 @@
+@inject AuthApiClient AuthApi
+@inject TokenAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+
+<button type="button" class="btn btn-outline-danger @CssClass" @onclick="HandleLogoutAsync" disabled="@_busy">
+    @if (_busy)
+    {
+        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+        <span>Signing out...</span>
+    }
+    else
+    {
+        <text>Sign Out</text>
+    }
+</button>
+
+@code {
+    /// <summary>
+    /// Additional CSS classes to apply to the button.
+    /// </summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    private bool _busy;
+
+    /// <summary>
+    /// Handles logout process:
+    /// 1. Calls API to record logout time in audit log
+    /// 2. Clears JWT from local storage
+    /// 3. Updates authentication state
+    /// 4. Redirects to login page
+    /// </summary>
+    private async Task HandleLogoutAsync()
+    {
+        _busy = true;
+        try
+        {
+            Console.WriteLine("[LogoutButton] Starting logout...");
+
+            // Call API logout (records logout time) and clear local token
+            await AuthApi.LogoutAsync();
+
+            Console.WriteLine("[LogoutButton] Token cleared");
+
+            // Update auth state immediately
+            await AuthStateProvider.SignOutAsync();
+
+            Console.WriteLine("[LogoutButton] Auth state updated");
+
+            // Navigate to login with force reload to clear any cached state
+            Nav.NavigateTo("/login", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[LogoutButton] Logout error: {ex.Message}");
+
+            // Even if logout fails, still navigate to login
+            // This ensures user can always log out from UI perspective
+            Nav.NavigateTo("/login", forceLoad: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
