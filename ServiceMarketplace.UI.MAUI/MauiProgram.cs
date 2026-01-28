@@ -8,10 +8,15 @@ using Microsoft.Extensions.Configuration;
 using System.Text;
 using System.Text.Json;
 
-// Purpose: MAUI Blazor Hybrid host.
-// - Loads appsettings.json from app package for ApiBaseUrl.
-// - Uses UI.Shared for shared components/auth/DTOs.
-// - HttpClient uses ApiBaseUrl; never hardcode URLs or tokens.
+// ========================================
+// MAUI Blazor Hybrid Host Configuration
+// ========================================
+// Purpose: Configures dependency injection, authentication, and API client for MAUI Hybrid UI.
+// Architecture:
+// - Loads appsettings.json from app package for ApiBaseUrl
+// - Uses UI.Shared for shared Razor components, auth logic, and API clients
+// - HttpClient always uses ApiBaseUrl; never hardcode URLs or tokens
+// - Android emulator: localhost → 10.0.2.2 mapping handled automatically
 
 namespace ServiceMarketplace.UI.MAUI;
 
@@ -20,6 +25,8 @@ public static class MauiProgram
     public static MauiApp CreateMauiApp()
     {
         var builder = MauiApp.CreateBuilder();
+        
+        // Configure MAUI app
         builder
             .UseMauiApp<App>()
             .ConfigureFonts(fonts =>
@@ -27,6 +34,7 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
             });
 
+        // Configure Blazor WebView
         builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG
@@ -34,35 +42,43 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
+        // Load configuration from bundled appsettings.json
         builder.Configuration.AddInMemoryCollection(LoadAppSettings());
 
+        // Configure authorization
         builder.Services.AddAuthorizationCore();
 
+        // Configure HTTP client for API calls
         builder.Services.AddScoped(sp =>
         {
-            // NOTE: do not hardcode. MAUI can provide via appsettings / environment.
             var config = sp.GetRequiredService<IConfiguration>();
             var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(config);
             return new HttpClient { BaseAddress = apiBaseUri };
         });
 
+        // Configure authentication services
         builder.Services.AddScoped<TokenAuthenticationStateProvider>();
-        builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<TokenAuthenticationStateProvider>());
+        builder.Services.AddScoped<AuthenticationStateProvider>(sp => 
+            sp.GetRequiredService<TokenAuthenticationStateProvider>());
         builder.Services.AddScoped<AuthRedirector>();
         builder.Services.AddScoped<AuthState>();
 
+        // Configure API clients
         builder.Services.AddScoped<AuthApiClient>();
         builder.Services.AddScoped<RequestsApiClient>();
         builder.Services.AddScoped<BidsApiClient>();
 
+        // Configure platform-specific services
         builder.Services.AddScoped<ITokenStorage, MauiTokenStorage>();
-
-        // Keep existing registrations already present in your solution:
-        // - ITokenStorage implementation for MAUI
 
         return builder.Build();
     }
 
+    /// <summary>
+    /// Loads configuration from appsettings.json bundled in the MAUI app package.
+    /// Falls back to empty collection if file is missing or invalid.
+    /// </summary>
+    /// <returns>Configuration key-value pairs from appsettings.json</returns>
     private static IEnumerable<KeyValuePair<string, string?>> LoadAppSettings()
     {
         try
@@ -70,23 +86,33 @@ public static class MauiProgram
             using var stream = FileSystem.OpenAppPackageFileAsync("appsettings.json").GetAwaiter().GetResult();
             using var reader = new StreamReader(stream, Encoding.UTF8);
             var json = reader.ReadToEnd();
+            
             if (string.IsNullOrWhiteSpace(json))
                 return Array.Empty<KeyValuePair<string, string?>>();
 
             using var doc = JsonDocument.Parse(json);
+            
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
                 return Array.Empty<KeyValuePair<string, string?>>();
 
-            var list = new List<KeyValuePair<string, string?>>();
-            foreach (var prop in doc.RootElement.EnumerateObject())
+            var settings = new List<KeyValuePair<string, string?>>();
+            
+            // Flatten JSON object to configuration key-value pairs
+            foreach (var property in doc.RootElement.EnumerateObject())
             {
-                list.Add(new KeyValuePair<string, string?>(prop.Name, prop.Value.ToString()));
+                var value = property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString()
+                    : property.Value.ToString();
+                    
+                settings.Add(new KeyValuePair<string, string?>(property.Name, value));
             }
 
-            return list;
+            return settings;
         }
-        catch
+        catch (Exception ex)
         {
+            // Log warning but don't crash - configuration validation happens later
+            System.Diagnostics.Debug.WriteLine($"Warning: Failed to load appsettings.json: {ex.Message}");
             return Array.Empty<KeyValuePair<string, string?>>();
         }
     }

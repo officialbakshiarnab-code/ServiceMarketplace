@@ -1,37 +1,45 @@
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Authorization;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
 
-// Purpose: Role-aware navigation to the correct dashboard after login.
-public sealed class AuthRedirector(AuthenticationStateProvider authenticationStateProvider, NavigationManager navigationManager)
+/// <summary>
+/// Role-based navigation helper for post-login redirects.
+/// Reads role claim from JWT and navigates to appropriate dashboard.
+/// </summary>
+public sealed class AuthRedirector
 {
-    private readonly AuthenticationStateProvider _authenticationStateProvider = authenticationStateProvider;
-    private readonly NavigationManager _navigationManager = navigationManager;
+    private readonly NavigationManager _nav;
+    private readonly AuthState _authState;
 
+    public AuthRedirector(NavigationManager nav, AuthState authState)
+    {
+        _nav = nav;
+        _authState = authState;
+    }
+
+    /// <summary>
+    /// Redirects authenticated user to role-appropriate dashboard.
+    /// Role claim values come from API's AuthController:
+    /// - "ServiceProvider" ? /provider/dashboard
+    /// - "User" (or any other) ? /user/dashboard
+    /// </summary>
     public async Task RedirectToDashboardAsync()
     {
-        var state = await _authenticationStateProvider.GetAuthenticationStateAsync();
-        var user = state.User;
+        var role = await _authState.GetRoleAsync();
 
-        if (user.Identity?.IsAuthenticated != true)
+        Console.WriteLine($"[AuthRedirector] Role claim: {role}");
+
+        // WHY: API assigns role claim as "User" or "ServiceProvider" (see AuthController.Login)
+        // Must match exactly (case-sensitive)
+        if (string.Equals(role, "ServiceProvider", StringComparison.Ordinal))
         {
-            _navigationManager.NavigateTo("/login");
-            return;
+            Console.WriteLine("[AuthRedirector] Navigating to provider dashboard");
+            _nav.NavigateTo("/provider/dashboard", forceLoad: false);
         }
-
-        if (user.IsInRole("User"))
+        else
         {
-            _navigationManager.NavigateTo("/user/dashboard");
-            return;
+            Console.WriteLine("[AuthRedirector] Navigating to user dashboard");
+            _nav.NavigateTo("/user/dashboard", forceLoad: false);
         }
-
-        if (user.IsInRole("ServiceProvider"))
-        {
-            _navigationManager.NavigateTo("/provider/dashboard");
-            return;
-        }
-
-        _navigationManager.NavigateTo("/");
     }
 }

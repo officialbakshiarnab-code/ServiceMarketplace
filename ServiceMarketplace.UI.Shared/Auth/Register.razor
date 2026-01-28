@@ -1,48 +1,140 @@
 @page "/register"
+@using System.ComponentModel.DataAnnotations
 @using ServiceMarketplace.UI.Shared.Auth
-@inject AuthApiClient AuthClient
+@inject AuthApiClient AuthApi
 @inject NavigationManager Nav
 
-<h3>Register</h3>
+<PageTitle>Register</PageTitle>
 
-<input @bind="model.Email" placeholder="Email" />
-<br />
-<input type="password" @bind="model.Password" placeholder="Password" />
-<br />
-<select @bind="model.Role">
-    <option value="User">User</option>
-    <option value="ServiceProvider">Service Provider</option>
-</select>
-<br />
-<button @onclick="HandleRegisterAsync" disabled="@_busy">Register</button>
+<div class="container py-4" style="max-width: 520px;">
+    <h3 class="mb-3">Register</h3>
 
-@if (!string.IsNullOrWhiteSpace(error))
-{
-    <p style="color:red">@error</p>
-}
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">
+            <strong>Error:</strong> @_error
+        </div>
+    }
+
+    @if (_success)
+    {
+        <div class="alert alert-success" role="alert">
+            Registration successful! Redirecting to login...
+        </div>
+    }
+
+    <EditForm Model="_model" OnValidSubmit="HandleRegisterAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" />
+
+        <div class="mb-3">
+            <label class="form-label">Email</label>
+            <InputText class="form-control" @bind-Value="_model.Email" placeholder="Email" />
+            <ValidationMessage For="@(() => _model.Email)" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" @bind="_model.Password" placeholder="Password" />
+            <ValidationMessage For="@(() => _model.Password)" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">User Type</label>
+            <InputSelect class="form-select" @bind-Value="_model.Role">
+                <option value="User">User (Request Services)</option>
+                <option value="ServiceProvider">Service Provider (Offer Services)</option>
+            </InputSelect>
+            <ValidationMessage For="@(() => _model.Role)" />
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 mb-2" disabled="@_busy">
+            @(_busy ? "Registering..." : "Register")
+        </button>
+        <button type="button" class="btn btn-link w-100" @onclick="GoToLogin" disabled="@_busy">
+            Already have an account? Login here
+        </button>
+    </EditForm>
+</div>
 
 @code {
-    private readonly RegisterRequest model = new() { Role = "User" };
+    private readonly RegisterModel _model = new() { Role = "User" };
     private bool _busy;
-    private string? error;
+    private bool _success;
+    private string? _error;
 
+    /// <summary>
+    /// Handles user registration:
+    /// 1. Creates RegisterRequest DTO matching API contract (Email, Password, Role)
+    /// 2. Calls AuthApiClient.RegisterAsync (sends POST /api/auth/register)
+    /// 3. On success: shows success message ? redirects to /login
+    /// 4. On failure: displays API error message
+    /// </summary>
     private async Task HandleRegisterAsync()
     {
-        error = null;
+        _error = null;
+        _success = false;
         _busy = true;
 
         try
         {
-            await AuthClient.RegisterAsync(model);
+            // WHY: Create request DTO with exact property names/types API expects
+            // API contract: { "email": "...", "password": "...", "role": "User|ServiceProvider" }
+            var request = new RegisterRequest
+            {
+                Email = _model.Email,
+                Password = _model.Password,
+                Role = _model.Role  // MUST be "User" or "ServiceProvider" (case-sensitive)
+            };
+
+            Console.WriteLine($"[Register] Sending request for: {request.Email}, Role: {request.Role}");
+
+            // WHY: AuthApiClient sends POST https://localhost:7147/api/auth/register
+            await AuthApi.RegisterAsync(request);
+
+            Console.WriteLine("[Register] Success");
+
+            _success = true;
+
+            // WHY: Brief delay to show success message before redirect
+            await Task.Delay(1500);
+
             Nav.NavigateTo("/login");
+        }
+        catch (HttpRequestException ex)
+        {
+            // WHY: API returned 400/409 (user exists) - AuthApiClient parses response body
+            _error = $"Registration failed: {ex.Message}";
+            Console.Error.WriteLine($"[Register] HTTP error: {ex.Message}");
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            _error = $"Unexpected error: {ex.Message}";
+            Console.Error.WriteLine($"[Register] Unexpected error: {ex}");
         }
         finally
         {
             _busy = false;
         }
+    }
+
+    private void GoToLogin() => Nav.NavigateTo("/login");
+
+    /// <summary>
+    /// View model for registration form with client-side validation.
+    /// Role values MUST match API's expected role names exactly (case-sensitive).
+    /// </summary>
+    private sealed class RegisterModel
+    {
+        [Required(ErrorMessage = "Email is required")]
+        [EmailAddress(ErrorMessage = "Invalid email format")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Password is required")]
+        [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Please select a role")]
+        public string Role { get; set; } = "User";
     }
 }

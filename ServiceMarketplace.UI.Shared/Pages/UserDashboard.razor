@@ -1,9 +1,8 @@
 @page "/user/dashboard"
-@using ServiceMarketplace.UI.Shared.Requests
 @using ServiceMarketplace.UI.Shared.Auth
 @inject NavigationManager Nav
-@inject AuthRedirector Redirector
 @inject AuthState AuthState
+@inject AuthRedirector Redirector
 
 @code {
     private bool _isAuthenticated;
@@ -14,14 +13,19 @@
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
         _role = await AuthState.GetRoleAsync();
 
+        Console.WriteLine($"[UserDashboard] Auth: {_isAuthenticated}, Role: {_role}");
+
         if (!_isAuthenticated)
         {
+            Console.WriteLine("[UserDashboard] Not authenticated, redirecting to login");
             Nav.NavigateTo("/login", forceLoad: false);
             return;
         }
 
-        if (!string.Equals(_role, "User", StringComparison.Ordinal))
+        // WHY: If user has ServiceProvider role, redirect them to provider dashboard
+        if (string.Equals(_role, "ServiceProvider", StringComparison.Ordinal))
         {
+            Console.WriteLine("[UserDashboard] ServiceProvider detected, redirecting");
             await Redirector.RedirectToDashboardAsync();
         }
     }
@@ -32,8 +36,15 @@
 
     <AuthorizeView Roles="User">
         <Authorized>
-            <CreateServiceRequest />
-            <MyRequestsList />
+            <div class="alert alert-info" role="alert">
+                <strong>Welcome, User!</strong>
+                <p class="mb-0">Features coming soon:</p>
+                <ul class="mb-0">
+                    <li>Create service requests</li>
+                    <li>View your active requests</li>
+                    <li>Manage bids from providers</li>
+                </ul>
+            </div>
         </Authorized>
         <NotAuthorized>
             <div class="alert alert-warning" role="alert">Redirecting...</div>

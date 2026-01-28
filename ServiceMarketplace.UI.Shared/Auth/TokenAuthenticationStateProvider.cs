@@ -4,13 +4,20 @@ using Microsoft.AspNetCore.Components.Authorization;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
 
-// Purpose: Restores auth state from stored JWT and keeps UI auth state consistent.
+/// <summary>
+/// Custom authentication state provider that reads JWT tokens from storage.
+/// Validates token expiration and extracts claims for Blazor authorization.
+/// </summary>
 public sealed class TokenAuthenticationStateProvider(ITokenStorage tokenStorage) : AuthenticationStateProvider
 {
     private static readonly ClaimsPrincipal Anonymous = new(new ClaimsIdentity());
     private readonly ITokenStorage _tokenStorage = tokenStorage;
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
 
+    /// <summary>
+    /// Retrieves authentication state by reading and validating stored JWT token.
+    /// Returns anonymous state if token is missing, expired, or invalid.
+    /// </summary>
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
         var token = await _tokenStorage.GetTokenAsync();
@@ -19,14 +26,17 @@ public sealed class TokenAuthenticationStateProvider(ITokenStorage tokenStorage)
 
         try
         {
+            // Parse JWT without validation (signature validation happens server-side)
             var jwt = _tokenHandler.ReadJwtToken(token);
 
+            // Check if token has expired
             if (jwt.ValidTo <= DateTime.UtcNow)
             {
                 await _tokenStorage.ClearAsync();
                 return new AuthenticationState(Anonymous);
             }
 
+            // Create authenticated identity with claims from JWT
             var identity = new ClaimsIdentity(jwt.Claims, authenticationType: "jwt");
             var principal = new ClaimsPrincipal(identity);
 
@@ -34,11 +44,18 @@ public sealed class TokenAuthenticationStateProvider(ITokenStorage tokenStorage)
         }
         catch
         {
+            // If token is malformed or parsing fails, clear it and return anonymous
             await _tokenStorage.ClearAsync();
             return new AuthenticationState(Anonymous);
         }
     }
 
-    public void NotifyAuthStateChanged()
-        => NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
+    /// <summary>
+    /// Notifies Blazor to re-evaluate authentication state.
+    /// Call this after saving a new JWT to storage (e.g., after login).
+    /// </summary>
+    public void NotifyAuthenticationStateChanged()
+    {
+        NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
+    }
 }

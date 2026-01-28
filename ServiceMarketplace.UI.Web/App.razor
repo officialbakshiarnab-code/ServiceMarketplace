@@ -1,12 +1,10 @@
 ﻿@using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.AspNetCore.Components
-@using Microsoft.AspNetCore.Components.Routing
-@using Microsoft.AspNetCore.Components.Web
-@inject NavigationManager Nav
 
 <CascadingAuthenticationState>
     <ErrorBoundary>
         <ChildContent>
+            @* WHY: Login/Register live in ServiceMarketplace.UI.Shared, so UI.Web must include that assembly
+               for the Router to discover /login and /register routes. MAUI already does this in Routes.razor. *@
             <Router AppAssembly="@typeof(App).Assembly"
                     AdditionalAssemblies="new[] { typeof(ServiceMarketplace.UI.Shared.Auth.Login).Assembly }">
                 <Found Context="routeData">
@@ -17,15 +15,15 @@
                             </LayoutView>
                         </Authorizing>
                         <NotAuthorized>
-                            @if (!_redirected)
-                            {
-                                _redirected = true;
-                                Nav.NavigateTo("/login", forceLoad: false);
-                            }
+                            <LayoutView Layout="@typeof(MainLayout)">
+                                <p class="text-muted">Not authorized.</p>
+                            </LayoutView>
                         </NotAuthorized>
                     </AuthorizeRouteView>
+
                     <FocusOnNavigate RouteData="@routeData" Selector="h1" />
                 </Found>
+
                 <NotFound>
                     <LayoutView Layout="@typeof(MainLayout)">
                         <p role="alert">Sorry, there's nothing at this address.</p>
@@ -33,6 +31,7 @@
                 </NotFound>
             </Router>
         </ChildContent>
+
         <ErrorContent>
             <LayoutView Layout="@typeof(MainLayout)">
                 <div class="alert alert-danger m-3" role="alert">
@@ -42,7 +41,3 @@
         </ErrorContent>
     </ErrorBoundary>
 </CascadingAuthenticationState>
-
-@code {
-    private bool _redirected;
-}

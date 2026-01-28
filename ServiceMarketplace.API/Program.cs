@@ -97,6 +97,23 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ==============================
+// CORS (WHY: Blazor WASM runs on different origin than API; browser blocks requests without CORS policy)
+// ==============================
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins(
+            "https://localhost:7241",  // UI.Web HTTPS
+            "http://localhost:5241"     // UI.Web HTTP
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials();
+    });
+});
+
+// ==============================
 // APPLICATION SERVICES
 // ==============================
 builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
@@ -161,6 +178,10 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.UseHttpsRedirection();
+
+// WHY: CORS must be applied before Authentication/Authorization/Controllers
+app.UseCors();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

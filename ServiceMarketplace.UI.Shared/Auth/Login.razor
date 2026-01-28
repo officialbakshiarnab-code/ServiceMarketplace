@@ -1,45 +1,125 @@
 ﻿@page "/login"
+@using System.ComponentModel.DataAnnotations
 @using ServiceMarketplace.UI.Shared.Auth
-@inject AuthApiClient AuthClient
+@inject AuthApiClient AuthApi
 @inject TokenAuthenticationStateProvider AuthStateProvider
 @inject AuthRedirector Redirector
+@inject NavigationManager Nav
 
-<h3>Login</h3>
+<PageTitle>Login</PageTitle>
 
-<input @bind="model.Email" placeholder="Email" />
-<br />
-<input type="password" @bind="model.Password" placeholder="Password" />
-<br />
-<button @onclick="HandleLoginAsync" disabled="@_busy">Login</button>
+<div class="container py-4" style="max-width: 520px;">
+    <h3 class="mb-3">Login</h3>
 
-@if (!string.IsNullOrWhiteSpace(error))
-{
-    <p style="color:red">@error</p>
-}
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">
+            <strong>Error:</strong> @_error
+        </div>
+    }
+
+    <EditForm Model="_model" OnValidSubmit="HandleLoginAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" />
+
+        <div class="mb-3">
+            <label class="form-label">Email</label>
+            <InputText class="form-control" @bind-Value="_model.Email" placeholder="Email" />
+            <ValidationMessage For="@(() => _model.Email)" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" @bind="_model.Password" placeholder="Password" />
+            <ValidationMessage For="@(() => _model.Password)" />
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 mb-2" disabled="@_busy">
+            @(_busy ? "Logging in..." : "Login")
+        </button>
+        <button type="button" class="btn btn-link w-100" @onclick="GoToRegister" disabled="@_busy">
+            Don't have an account? Register here
+        </button>
+    </EditForm>
+</div>
 
 @code {
-    private readonly LoginRequest model = new();
+    private readonly LoginModel _model = new();
     private bool _busy;
-    private string? error;
+    private string? _error;
 
+    /// <summary>
+    /// Handles user login:
+    /// 1. Creates LoginRequest DTO matching API contract (Email, Password)
+    /// 2. Calls AuthApiClient.LoginAsync (sends POST /api/auth/login)
+    /// 3. On success: JWT stored by AuthApiClient → notify auth provider → redirect by role
+    /// 4. On failure: displays API error message from response body
+    /// </summary>
     private async Task HandleLoginAsync()
     {
-        error = null;
+        _error = null;
         _busy = true;
 
         try
         {
-            await AuthClient.LoginAsync(model);
-            AuthStateProvider.NotifyAuthStateChanged();
+            // WHY: Create request DTO with exact property names/types API expects
+            // API contract: { "email": "...", "password": "..." } (lowercase from JSON serializer)
+            var request = new LoginRequest
+            {
+                Email = _model.Email,
+                Password = _model.Password
+            };
+
+            Console.WriteLine($"[Login] Sending request for: {request.Email}");
+
+            // WHY: AuthApiClient sends POST https://localhost:7147/api/auth/login
+            // On success: saves JWT to ITokenStorage
+            await AuthApi.LoginAsync(request);
+
+            Console.WriteLine("[Login] Success - JWT stored");
+
+            // WHY: Forces Blazor to re-read JWT from storage and update UI auth state
+            AuthStateProvider.NotifyAuthenticationStateChanged();
+
+            Console.WriteLine("[Login] Auth state updated");
+
+            // WHY: Reads role claim from JWT and navigates to appropriate dashboard
+            // Role "User" → /user/dashboard
+            // Role "ServiceProvider" → /provider/dashboard
             await Redirector.RedirectToDashboardAsync();
+        }
+        catch (HttpRequestException ex)
+        {
+            // WHY: API returned 400/401/500 - AuthApiClient parses response body
+            _error = $"Login failed: {ex.Message}";
+            Console.Error.WriteLine($"[Login] HTTP error: {ex.Message}");
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            _error = $"Unexpected error: {ex.Message}";
+            Console.Error.WriteLine($"[Login] Unexpected error: {ex}");
         }
         finally
         {
             _busy = false;
         }
     }
+
+    private void GoToRegister() => Nav.NavigateTo("/register");
+
+    /// <summary>
+    /// View model for login form with client-side validation.
+    /// Separate from LoginRequest DTO to avoid coupling UI validation to API contract.
+    /// </summary>
+    private sealed class LoginModel
+    {
+        [Required(ErrorMessage = "Email is required")]
+        [EmailAddress(ErrorMessage = "Invalid email format")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Password is required")]
+        [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
+        public string Password { get; set; } = string.Empty;
+    }
 }
+

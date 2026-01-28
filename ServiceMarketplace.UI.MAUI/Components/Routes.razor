@@ -19,17 +19,17 @@
                             </LayoutView>
                         </Authorizing>
                         <NotAuthorized>
-                            @if (!_redirected)
-                            {
-                                _redirected = true;
-                                Nav.NavigateTo("/login", forceLoad: false);
-                            }
+                            <LayoutView Layout="@typeof(MainLayout)">
+                                <p class="text-muted">Not authorized.</p>
+                            </LayoutView>
                         </NotAuthorized>
                     </AuthorizeRouteView>
+
                     <FocusOnNavigate RouteData="@routeData" Selector="h1" />
                 </Found>
             </Router>
         </ChildContent>
+
         <ErrorContent>
             <LayoutView Layout="@typeof(MainLayout)">
                 <div class="alert alert-danger m-3" role="alert">
@@ -39,7 +39,3 @@
         </ErrorContent>
     </ErrorBoundary>
 </CascadingAuthenticationState>
-
-@code {
-    private bool _redirected;
-}
