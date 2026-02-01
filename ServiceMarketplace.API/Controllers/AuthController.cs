@@ -140,10 +140,10 @@ public class AuthController : ControllerBase
         foreach (var role in roles)
             claims.Add(new Claim(ClaimTypes.Role, role));
 
-        // Generate JWT token
+        // Generate JWT token with 10-minute expiration for security
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expirationTime = DateTime.UtcNow.AddHours(2);
+        var expirationTime = DateTime.UtcNow.AddMinutes(10);
 
         var token = new JwtSecurityToken(
             issuer: _configuration["Jwt:Issuer"],

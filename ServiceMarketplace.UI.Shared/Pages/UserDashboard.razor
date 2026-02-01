@@ -39,18 +39,64 @@
 
     <AuthorizeView Roles="User">
         <Authorized>
-            <div class="alert alert-info" role="alert">
-                <strong>Welcome, User!</strong>
-                <p class="mb-0">Features coming soon:</p>
-                <ul class="mb-0">
-                    <li>Create service requests</li>
-                    <li>View your active requests</li>
-                    <li>Manage bids from providers</li>
-                </ul>
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">Quick Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-lg btn-primary" type="button">
+                                    <i class="bi bi-plus-circle me-2"></i>
+                                    Create New Service Request
+                                </button>
+                                <button class="btn btn-lg btn-outline-primary" type="button">
+                                    <i class="bi bi-list-ul me-2"></i>
+                                    View My Requests
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h5 class="mb-0">Recent Activity</h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">No recent activity. Create your first service request to get started!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Stats</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <h6 class="text-muted">Open Requests</h6>
+                                <h3 class="mb-0">0</h3>
+                            </div>
+                            <div class="mb-3">
+                                <h6 class="text-muted">Active Bids</h6>
+                                <h3 class="mb-0">0</h3>
+                            </div>
+                            <div>
+                                <h6 class="text-muted">Completed</h6>
+                                <h3 class="mb-0">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </Authorized>
         <NotAuthorized>
-            <div class="alert alert-warning" role="alert">Redirecting...</div>
+            <div class="alert alert-warning" role="alert">
+                <strong>Unauthorized Access</strong>
+                <p class="mb-0">You do not have permission to view this page. Redirecting...</p>
+            </div>
         </NotAuthorized>
     </AuthorizeView>
 </div>

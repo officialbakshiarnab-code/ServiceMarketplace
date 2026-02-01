@@ -35,11 +35,19 @@
 
     <AuthorizeView Roles="ServiceProvider">
         <Authorized>
+            <div class="alert alert-info mb-3" role="alert">
+                <strong>Browse & Bid on Service Requests</strong>
+                <p class="mb-0">View nearby service requests and place competitive bids.</p>
+            </div>
             <NearbyRequestsList />
         </Authorized>
         <NotAuthorized>
-            <div class="alert alert-warning" role="alert">Redirecting...</div>
+            <div class="alert alert-warning" role="alert">
+                <strong>Unauthorized Access</strong>
+                <p class="mb-0">You do not have permission to view this page. Redirecting...</p>
+            </div>
         </NotAuthorized>
     </AuthorizeView>
 </div>
+
 
