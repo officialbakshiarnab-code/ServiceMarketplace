@@ -24,9 +24,25 @@ public class BidsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> PlaceBid(CreateBidDto dto)
     {
-        var providerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var providerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(providerId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
         await _service.PlaceBidAsync(dto, providerId);
         return Ok("Bid placed");
+    }
+
+    // SERVICE PROVIDER views their own bids
+    [Authorize(Roles = "ServiceProvider")]
+    [HttpGet("mine")]
+    public async Task<IActionResult> GetMine()
+    {
+        var providerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(providerId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
+        var bids = await _service.GetMyBidsAsync(providerId);
+        return Ok(bids);
     }
 
     // USER views bids for their request
@@ -34,7 +50,10 @@ public class BidsController : ControllerBase
     [HttpGet("{requestId}")]
     public async Task<IActionResult> GetBids(Guid requestId)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
         var bids = await _service.GetBidsForRequestAsync(requestId, userId);
         return Ok(bids);
     }

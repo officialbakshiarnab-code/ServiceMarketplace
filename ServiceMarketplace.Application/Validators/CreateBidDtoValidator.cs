@@ -16,5 +16,8 @@ public class CreateBidDtoValidator : AbstractValidator<CreateBidDto>
 
         RuleFor(x => x.ProposedDateTime)
             .GreaterThan(DateTime.UtcNow.AddMinutes(-1));
+
+        RuleFor(x => x.Message)
+            .MaximumLength(500);
     }
 }

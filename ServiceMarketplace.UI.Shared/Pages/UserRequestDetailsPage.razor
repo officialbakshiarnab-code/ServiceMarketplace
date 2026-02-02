@@ -1,0 +1,203 @@
+@page "/user/requests/{RequestId:guid}"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject RequestsApiClient RequestsClient
+@inject BidsApiClient BidsClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+@code {
+    [Parameter]
+    public Guid RequestId { get; set; }
+
+    private bool _isAuthenticated;
+    private string? _role;
+    private bool _loading = true;
+    private string? _error;
+    private ServiceRequestDto? _request;
+    private List<BidDto> _bids = [];
+    private string? _acceptError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAuthenticated = await AuthState.IsAuthenticatedAsync();
+        _role = await AuthState.GetRoleAsync();
+
+        if (!_isAuthenticated)
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        if (!string.Equals(_role, RoleNames.User, StringComparison.Ordinal))
+        {
+            Nav.NavigateTo("/user/dashboard", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        _loading = true;
+
+        try
+        {
+            _request = await RequestsClient.GetByIdAsync(RequestId);
+            _bids = await BidsClient.GetBidsForRequestAsync(RequestId);
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load the request right now.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task AcceptBidAsync(Guid bidId)
+    {
+        _acceptError = null;
+
+        try
+        {
+            await RequestsClient.AcceptBidAsync(RequestId, bidId);
+            Nav.NavigateTo("/user/my-requests");
+        }
+        catch (Exception ex)
+        {
+            _acceptError = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to accept the bid right now.");
+        }
+    }
+}
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Request Details</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    <AuthorizeView Roles="@RoleNames.User">
+        <Authorized>
+            @if (_loading)
+            {
+                <p class="text-muted">Loading...</p>
+            }
+            else if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="alert alert-danger" role="alert">@_error</div>
+            }
+            else if (_request == null)
+            {
+                <p class="text-muted">Request not found.</p>
+            }
+            else
+            {
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-body">
+                                <h3 class="mb-2">@_request.Title</h3>
+                                <p class="text-muted">@_request.Description</p>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-12 col-md-6">
+                                        <strong>Category:</strong> @_request.Category
+                                    </div>
+                                    <div class="col-12 col-md-6">
+                                        <strong>Location:</strong> @_request.Location
+                                    </div>
+                                </div>
+
+                                <div class="row g-2">
+                                    <div class="col-12 col-md-6">
+                                        <strong>Status:</strong> 
+                                        <span class="badge bg-info">@GetStatusLabel()</span>
+                                    </div>
+                                    <div class="col-12 col-md-6">
+                                        <strong>Created:</strong> @_request.CreatedAt.ToLocalTime().ToString("g")
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_acceptError))
+                        {
+                            <div class="alert alert-danger mt-3" role="alert">@_acceptError</div>
+                        }
+
+                        @if (_bids.Count == 0)
+                        {
+                            <div class="card mt-3">
+                                <div class="card-body">
+                                    <p class="text-muted mb-0">No bids yet. Share your request to attract service providers.</p>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="card mt-3">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Bids (@_bids.Count)</h5>
+                                </div>
+                                <div class="list-group list-group-flush">
+                                    @foreach (var bid in _bids)
+                                    {
+                                        <div class="list-group-item">
+                                            <div class="d-flex w-100 justify-content-between">
+                                                <div>
+                                                    <h6 class="mb-1">$@bid.Amount.ToString("0.00")</h6>
+                                                    <p class="mb-1 small text-muted">Proposed: @bid.ProposedDateTime.ToLocalTime().ToString("g")</p>
+                                                    @if (!string.IsNullOrWhiteSpace(bid.Message))
+                                                    {
+                                                        <p class="mb-0 small">@bid.Message</p>
+                                                    }
+                                                </div>
+                                                <div class="text-end">
+                                                    <span class="badge bg-secondary mb-2">@bid.Status</span>
+                                                    @if (bid.Status == BidStatus.Pending && _request.Status == ServiceRequestStatus.Open)
+                                                    {
+                                                        <div>
+                                                            <button class="btn btn-sm btn-success" @onclick="() => AcceptBidAsync(bid.Id)">Accept</button>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-warning" role="alert">
+                <strong>Unauthorized Access</strong>
+                <p class="mb-0">You do not have permission to access this page.</p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private void GoBack() => Nav.NavigateTo("/user/my-requests");
+
+    private string GetStatusLabel()
+    {
+        if (_request == null) return "Unknown";
+        return _request.Status switch
+        {
+            ServiceRequestStatus.Open => "Open",
+            ServiceRequestStatus.Accepted => "Accepted",
+            ServiceRequestStatus.Closed => "Closed",
+            _ => "Unknown"
+        };
+    }
+}

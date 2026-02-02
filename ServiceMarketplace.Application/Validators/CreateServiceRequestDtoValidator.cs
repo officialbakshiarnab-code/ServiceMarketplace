@@ -15,6 +15,14 @@ public class CreateServiceRequestDtoValidator : AbstractValidator<CreateServiceR
             .NotEmpty()
             .MaximumLength(2000);
 
+        RuleFor(x => x.Category)
+            .NotEmpty()
+            .MaximumLength(100);
+
+        RuleFor(x => x.Location)
+            .NotEmpty()
+            .MaximumLength(200);
+
         RuleFor(x => x.Latitude)
             .InclusiveBetween(-90, 90);
 

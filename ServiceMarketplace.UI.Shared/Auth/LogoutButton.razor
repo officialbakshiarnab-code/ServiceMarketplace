@@ -24,38 +24,59 @@
     private bool _busy;
 
     /// <summary>
-    /// Handles logout process:
-    /// 1. Calls API to record logout time in audit log
-    /// 2. Clears JWT from local storage
-    /// 3. Updates authentication state
-    /// 4. Redirects to login page
+    /// Handles logout process with guaranteed audit trail:
+    /// 
+    /// STEP 1: Call /api/auth/logout endpoint (BEFORE clearing tokens)
+    ///         - Requires valid JWT for authentication
+    ///         - Creates NEW AuditLogs row with EventType="Logout"
+    ///         - Records TimestampUtc, UserId, Role, SessionId, IpAddress, UserAgent
+    /// 
+    /// STEP 2: Clear JWT from local storage
+    ///         - Removes authentication token
+    /// 
+    /// STEP 3: Update authentication state
+    ///         - Notifies Blazor to re-evaluate auth state
+    ///         - User becomes unauthenticated
+    /// 
+    /// STEP 4: Redirect to login page
+    ///         - Force reload to clear any cached state
+    /// 
+    /// CRITICAL: API call MUST happen BEFORE token removal to ensure audit record is created.
+    /// If API call fails, logout still succeeds locally for user experience.
     /// </summary>
     private async Task HandleLogoutAsync()
     {
         _busy = true;
         try
         {
-            Console.WriteLine("[LogoutButton] Starting logout...");
+            Console.WriteLine("[LogoutButton] ========== LOGOUT FLOW STARTED ==========");
 
-            // Call API logout (records logout time) and clear local token
+            // STEP 1: Call API logout endpoint (creates audit record) BEFORE clearing token
+            // This ensures the JWT is still valid for the [Authorize] attribute
+            Console.WriteLine("[LogoutButton] STEP 1: Calling AuthApi.LogoutAsync()...");
             await AuthApi.LogoutAsync();
+            Console.WriteLine("[LogoutButton] STEP 1: AuthApi.LogoutAsync() completed");
 
-            Console.WriteLine("[LogoutButton] Token cleared");
-
-            // Update auth state immediately
+            // STEP 2: Update auth state immediately
+            Console.WriteLine("[LogoutButton] STEP 2: Updating auth state...");
             await AuthStateProvider.SignOutAsync();
+            Console.WriteLine("[LogoutButton] STEP 2: Auth state updated");
 
-            Console.WriteLine("[LogoutButton] Auth state updated");
-
-            // Navigate to login with force reload to clear any cached state
+            // STEP 3: Navigate to login with force reload to clear any cached state
+            Console.WriteLine("[LogoutButton] STEP 3: Navigating to /login...");
             Nav.NavigateTo("/login", forceLoad: true);
+            
+            Console.WriteLine("[LogoutButton] ========== LOGOUT FLOW COMPLETED ==========");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[LogoutButton] Logout error: {ex.Message}");
+            Console.Error.WriteLine($"[LogoutButton] ========== LOGOUT FLOW ERROR ==========");
+            Console.Error.WriteLine($"[LogoutButton] Error: {ex.Message}");
+            Console.Error.WriteLine($"[LogoutButton] Stack trace: {ex.StackTrace}");
 
             // Even if logout fails, still navigate to login
             // This ensures user can always log out from UI perspective
+            Console.WriteLine("[LogoutButton] Forcing navigation to /login despite error...");
             Nav.NavigateTo("/login", forceLoad: true);
         }
         finally

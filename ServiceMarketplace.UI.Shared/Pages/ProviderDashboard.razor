@@ -20,10 +20,20 @@
             return;
         }
 
-        if (!string.Equals(_role, "ServiceProvider", StringComparison.Ordinal))
+        if (!string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
         {
             await Redirector.RedirectToDashboardAsync();
         }
+    }
+
+    private void GoToAvailableRequests()
+    {
+        Nav.NavigateTo("/provider/available-requests");
+    }
+
+    private void GoToMyBids()
+    {
+        Nav.NavigateTo("/provider/my-bids");
     }
 }
 
@@ -33,13 +43,34 @@
         <LogoutButton />
     </div>
 
-    <AuthorizeView Roles="ServiceProvider">
+    <AuthorizeView Roles="@RoleNames.Provider">
         <Authorized>
             <div class="alert alert-info mb-3" role="alert">
                 <strong>Browse & Bid on Service Requests</strong>
                 <p class="mb-0">View nearby service requests and place competitive bids.</p>
             </div>
-            <NearbyRequestsList />
+
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">Quick Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-lg btn-primary" type="button" @onclick="GoToAvailableRequests">
+                                    <i class="bi bi-search me-2"></i>
+                                    Browse Available Requests
+                                </button>
+                                <button class="btn btn-lg btn-outline-primary" type="button" @onclick="GoToMyBids">
+                                    <i class="bi bi-bookmark-check me-2"></i>
+                                    View My Bids
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </Authorized>
         <NotAuthorized>
             <div class="alert alert-warning" role="alert">
@@ -49,5 +80,4 @@
         </NotAuthorized>
     </AuthorizeView>
 </div>
-
 

@@ -22,13 +22,15 @@
             return;
         }
 
-        // WHY: If user has ServiceProvider role, redirect them to provider dashboard
-        if (string.Equals(_role, "ServiceProvider", StringComparison.Ordinal))
+        if (string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
         {
             Console.WriteLine("[UserDashboard] ServiceProvider detected, redirecting");
             await Redirector.RedirectToDashboardAsync();
         }
     }
+
+    private void GoToCreateRequest() => Nav.NavigateTo("/user/create-request");
+    private void GoToMyRequests() => Nav.NavigateTo("/user/my-requests");
 }
 
 <div class="container py-4">
@@ -37,7 +39,7 @@
         <LogoutButton />
     </div>
 
-    <AuthorizeView Roles="User">
+    <AuthorizeView Roles="@RoleNames.User">
         <Authorized>
             <div class="row">
                 <div class="col-md-8">
@@ -47,11 +49,11 @@
                         </div>
                         <div class="card-body">
                             <div class="d-grid gap-2">
-                                <button class="btn btn-lg btn-primary" type="button">
+                                <button class="btn btn-lg btn-primary" type="button" @onclick="GoToCreateRequest">
                                     <i class="bi bi-plus-circle me-2"></i>
                                     Create New Service Request
                                 </button>
-                                <button class="btn btn-lg btn-outline-primary" type="button">
+                                <button class="btn btn-lg btn-outline-primary" type="button" @onclick="GoToMyRequests">
                                     <i class="bi bi-list-ul me-2"></i>
                                     View My Requests
                                 </button>
@@ -100,4 +102,3 @@
         </NotAuthorized>
     </AuthorizeView>
 </div>
-

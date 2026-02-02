@@ -43,6 +43,7 @@ public class ExceptionHandlingMiddleware
                     .GroupBy(e => e.PropertyName)
                     .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray())
             ),
+            BadRequestException br => ((int)HttpStatusCode.BadRequest, br.Message, "bad_request", null),
             NotFoundException nf => ((int)HttpStatusCode.NotFound, nf.Message, "not_found", null),
             UnauthorizedAccessException ua => ((int)HttpStatusCode.Unauthorized, ua.Message, "unauthorized", null),
             ForbiddenException fb => ((int)HttpStatusCode.Forbidden, fb.Message, "forbidden", null),

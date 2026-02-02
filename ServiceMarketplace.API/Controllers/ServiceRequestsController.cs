@@ -24,7 +24,10 @@ public class ServiceRequestsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(CreateServiceRequestDto dto)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
         var id = await _service.CreateAsync(dto, userId);
         return Ok(new { RequestId = id });
     }
@@ -47,12 +50,67 @@ public class ServiceRequestsController : ControllerBase
         return Ok(requests);
     }
 
+    // USER views their own requests
+    [Authorize(Roles = "User")]
+    [HttpGet("mine")]
+    public async Task<IActionResult> GetMine()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
+        var requests = await _service.GetMyRequestsAsync(userId);
+        return Ok(requests);
+    }
+
+    // SERVICE PROVIDER views available open requests (excluding own)
+    [Authorize(Roles = "ServiceProvider")]
+    [HttpGet("available")]
+    public async Task<IActionResult> GetAvailable()
+    {
+        var providerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(providerId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
+        var requests = await _service.GetAvailableForProviderAsync(providerId);
+        return Ok(requests);
+    }
+
+    // USER views details for their request
+    [Authorize(Roles = "User")]
+    [HttpGet("{requestId}")]
+    public async Task<IActionResult> GetById(Guid requestId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
+        var request = await _service.GetByIdForUserAsync(requestId, userId);
+        return Ok(request);
+    }
+
+    // SERVICE PROVIDER views details for any open request (to place bid)
+    [Authorize(Roles = "ServiceProvider")]
+    [HttpGet("{requestId}/details")]
+    public async Task<IActionResult> GetRequestDetails(Guid requestId)
+    {
+        var providerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(providerId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
+        var request = await _service.GetByIdForProviderAsync(requestId, providerId);
+        return Ok(request);
+    }
+
     // USER accepts a bid
     [Authorize(Roles = "User")]
     [HttpPost("{requestId}/accept/{bidId}")]
     public async Task<IActionResult> AcceptBid(Guid requestId, Guid bidId)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
         await _service.AcceptBidAsync(requestId, bidId, userId);
         return Ok("Bid accepted");
     }

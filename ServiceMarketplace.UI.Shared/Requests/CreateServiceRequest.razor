@@ -1,0 +1,94 @@
+@using ServiceMarketplace.Application.DTOs
+@inject RequestsApiClient RequestsClient
+@inject NavigationManager Nav
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="mb-3">Create Service Request</h5>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+
+        <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label class="form-label">Title</label>
+                <InputText class="form-control" @bind-Value="_model.Title" disabled="@_busy" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Description</label>
+                <InputTextArea class="form-control" rows="4" @bind-Value="_model.Description" disabled="@_busy" />
+            </div>
+
+            <div class="row g-2">
+                <div class="col-12 col-md-6">
+                    <label class="form-label">Category</label>
+                    <InputText class="form-control" @bind-Value="_model.Category" disabled="@_busy" />
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label">Location</label>
+                    <InputText class="form-control" @bind-Value="_model.Location" disabled="@_busy" />
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button class="btn btn-primary" type="submit" disabled="@_busy">
+                    @if (_busy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Submitting...</span>
+                    }
+                    else
+                    {
+                        <span>Submit Request</span>
+                    }
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private readonly CreateServiceRequestDto _model = new();
+    private bool _busy;
+    private string? _error;
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_model.Title) || string.IsNullOrWhiteSpace(_model.Description))
+        {
+            _error = "Title and description are required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Category) || string.IsNullOrWhiteSpace(_model.Location))
+        {
+            _error = "Category and location are required.";
+            return;
+        }
+
+        _model.Latitude = 0;
+        _model.Longitude = 0;
+
+        _busy = true;
+        try
+        {
+            await RequestsClient.CreateAsync(_model);
+            Nav.NavigateTo("/user/my-requests");
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to create the request right now.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,54 @@
+@page "/user/create-request"
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+@code {
+    private bool _isAuthenticated;
+    private string? _role;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAuthenticated = await AuthState.IsAuthenticatedAsync();
+        _role = await AuthState.GetRoleAsync();
+
+        if (!_isAuthenticated)
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        if (!string.Equals(_role, "User", StringComparison.Ordinal))
+        {
+            Nav.NavigateTo("/user/dashboard", forceLoad: false);
+        }
+    }
+}
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Create Service Request</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    <AuthorizeView Roles="User">
+        <Authorized>
+            <div class="row">
+                <div class="col-md-8">
+                    <CreateServiceRequest />
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-warning" role="alert">
+                <strong>Unauthorized Access</strong>
+                <p class="mb-0">You do not have permission to access this page.</p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private void GoBack() => Nav.NavigateTo("/user/dashboard");
+}

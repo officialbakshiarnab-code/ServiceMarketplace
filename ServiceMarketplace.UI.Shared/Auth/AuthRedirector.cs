@@ -29,9 +29,7 @@ public sealed class AuthRedirector
 
         Console.WriteLine($"[AuthRedirector] Role claim: {role}");
 
-        // WHY: API assigns role claim as "User" or "ServiceProvider" (see AuthController.Login)
-        // Must match exactly (case-sensitive)
-        if (string.Equals(role, "ServiceProvider", StringComparison.Ordinal))
+        if (string.Equals(role, RoleNames.Provider, StringComparison.Ordinal))
         {
             Console.WriteLine("[AuthRedirector] Navigating to provider dashboard");
             _nav.NavigateTo("/provider/dashboard", forceLoad: false);

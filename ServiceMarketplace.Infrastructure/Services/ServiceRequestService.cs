@@ -22,11 +22,16 @@ public class ServiceRequestService : IServiceRequestService
 
     public async Task<Guid> CreateAsync(CreateServiceRequestDto dto, string userId)
     {
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
         var request = new ServiceRequest
         {
             CustomerId = userId,
             Title = dto.Title,
             Description = dto.Description,
+            Category = dto.Category,
+            Location = dto.Location,
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
             Status = ServiceRequestStatus.Open
@@ -44,15 +49,21 @@ public class ServiceRequestService : IServiceRequestService
     {
         return await _context.ServiceRequests
             .Where(r => r.Status == ServiceRequestStatus.Open)
+            .OrderByDescending(r => r.CreatedAt)
             .Select(r => new ServiceRequestDto
             {
                 Id = r.Id,
                 CustomerId = r.CustomerId,
                 Title = r.Title,
                 Description = r.Description,
+                Category = r.Category,
+                Location = r.Location,
                 Latitude = r.Latitude,
                 Longitude = r.Longitude,
-                Status = r.Status
+                Status = r.Status,
+                BidCount = r.Bids.Count,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt
             })
             .ToListAsync();
     }
@@ -84,16 +95,140 @@ public class ServiceRequestService : IServiceRequestService
                 CustomerId = x.Request.CustomerId,
                 Title = x.Request.Title,
                 Description = x.Request.Description,
+                Category = x.Request.Category,
+                Location = x.Request.Location,
                 Latitude = x.Request.Latitude,
                 Longitude = x.Request.Longitude,
                 Status = x.Request.Status,
-                DistanceKm = x.DistanceKm
+                DistanceKm = x.DistanceKm,
+                BidCount = x.Request.Bids.Count,
+                CreatedAt = x.Request.CreatedAt,
+                UpdatedAt = x.Request.UpdatedAt
             })
             .ToListAsync();
     }
 
+    public async Task<List<ServiceRequestDto>> GetMyRequestsAsync(string userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return new List<ServiceRequestDto>();
+
+        return await _context.ServiceRequests
+            .Where(r => r.CustomerId == userId)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new ServiceRequestDto
+            {
+                Id = r.Id,
+                CustomerId = r.CustomerId,
+                Title = r.Title,
+                Description = r.Description,
+                Category = r.Category,
+                Location = r.Location,
+                Latitude = r.Latitude,
+                Longitude = r.Longitude,
+                Status = r.Status,
+                BidCount = r.Bids.Count,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<ServiceRequestDto>> GetAvailableForProviderAsync(string providerUserId)
+    {
+        if (string.IsNullOrWhiteSpace(providerUserId))
+            return new List<ServiceRequestDto>();
+
+        return await _context.ServiceRequests
+            .Where(r => r.Status == ServiceRequestStatus.Open && r.CustomerId != providerUserId)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new ServiceRequestDto
+            {
+                Id = r.Id,
+                CustomerId = r.CustomerId,
+                Title = r.Title,
+                Description = r.Description,
+                Category = r.Category,
+                Location = r.Location,
+                Latitude = r.Latitude,
+                Longitude = r.Longitude,
+                Status = r.Status,
+                BidCount = r.Bids.Count,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt
+            })
+            .ToListAsync();
+    }
+
+    public async Task<ServiceRequestDto> GetByIdForUserAsync(Guid requestId, string userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new ForbiddenException("User ID is required");
+
+        var request = await _context.ServiceRequests
+            .Where(r => r.Id == requestId && r.CustomerId == userId)
+            .Select(r => new ServiceRequestDto
+            {
+                Id = r.Id,
+                CustomerId = r.CustomerId,
+                Title = r.Title,
+                Description = r.Description,
+                Category = r.Category,
+                Location = r.Location,
+                Latitude = r.Latitude,
+                Longitude = r.Longitude,
+                Status = r.Status,
+                BidCount = r.Bids.Count,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt
+            })
+            .FirstOrDefaultAsync();
+
+        if (request == null)
+            throw new NotFoundException("Service request not found");
+
+        return request;
+    }
+
+    public async Task<ServiceRequestDto> GetByIdForProviderAsync(Guid requestId, string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId))
+            throw new ForbiddenException("Provider ID is required");
+
+        var request = await _context.ServiceRequests
+            .Where(r => r.Id == requestId && r.Status == ServiceRequestStatus.Open)
+            .Select(r => new ServiceRequestDto
+            {
+                Id = r.Id,
+                CustomerId = r.CustomerId,
+                Title = r.Title,
+                Description = r.Description,
+                Category = r.Category,
+                Location = r.Location,
+                Latitude = r.Latitude,
+                Longitude = r.Longitude,
+                Status = r.Status,
+                BidCount = r.Bids.Count,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt
+            })
+            .FirstOrDefaultAsync();
+
+        if (request == null)
+            throw new NotFoundException("Service request not found or not available for bidding");
+
+        // Providers cannot bid on their own requests
+        if (request.CustomerId == providerId)
+            throw new ForbiddenException("Cannot view or bid on your own request");
+
+        return request;
+    }
+
     public async Task AcceptBidAsync(Guid requestId, Guid bidId, string userId)
     {
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("Authentication is required.");
+
         var request = await _context.ServiceRequests
             .Include(r => r.Bids)
             .FirstOrDefaultAsync(r => r.Id == requestId);
@@ -105,7 +240,7 @@ public class ServiceRequestService : IServiceRequestService
             throw new ForbiddenException("Not authorized to accept bids for this request");
 
         if (request.Status != ServiceRequestStatus.Open)
-            throw new Exception("Request is not open");
+            throw new BadRequestException("Request is not open");
 
         var selectedBid = request.Bids.FirstOrDefault(b => b.Id == bidId);
         if (selectedBid == null)

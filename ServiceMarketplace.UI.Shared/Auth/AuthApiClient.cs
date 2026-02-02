@@ -62,21 +62,64 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
     /// Handles various error formats: simple strings, validation errors, problem details.
     /// </summary>
     /// <summary>
-    /// Logs out the current user by calling API and clearing local token storage.
-    /// Even if API call fails, local token is cleared to ensure logout succeeds.
+    /// Logs out the current user by calling API endpoint and clearing local token storage.
+    /// 
+    /// CRITICAL ORDER OF OPERATIONS:
+    /// 1. Call POST /api/auth/logout endpoint (while token is still valid)
+    ///    - This creates a NEW AuditLogs row with EventType="Logout"
+    ///    - Endpoint is [Authorize] protected, requires valid JWT
+    /// 2. Clear token from local storage (happens in finally block)
+    ///    - Ensures token is always cleared, even if API fails
+    /// 
+    /// AUDIT GUARANTEE:
+    /// - If API call succeeds: Audit record is created ?
+    /// - If API call fails: Local logout still succeeds (user experience)
+    /// 
+    /// APPEND-ONLY DESIGN:
+    /// - Each logout creates exactly ONE new row in AuditLogs
+    /// - NEVER updates existing rows
+    /// - EventType="Logout", TimestampUtc=DateTime.UtcNow
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
+        HttpResponseMessage? response = null;
+        
         try
         {
-            // Attempt to notify API of logout (records logout time in audit log)
-            using var response = await _httpClient.PostAsync("api/auth/logout", null, cancellationToken);
+            // STEP 1: Get token BEFORE making the API call
+            var token = await _tokenStorage.GetTokenAsync();
             
-            if (!response.IsSuccessStatusCode)
+            if (string.IsNullOrWhiteSpace(token))
             {
-                // Log but don't throw - logout must always succeed locally
+                Console.WriteLine("[AuthApiClient] No token found, skipping API logout call");
+                return;
+            }
+            
+            // STEP 2: Attach Bearer token to request header
+            _httpClient.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            Console.WriteLine("[AuthApiClient] Calling logout API with Bearer token...");
+            
+            // STEP 3: Call logout API (while token is still valid and attached)
+            response = await _httpClient.PostAsync("api/auth/logout", null, cancellationToken);
+            
+            // STEP 4: Check response status
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine("[AuthApiClient] Logout API call succeeded - audit record created");
+            }
+            else
+            {
                 Console.WriteLine($"[AuthApiClient] Logout API call failed: {response.StatusCode}");
+                
+                // Try to read error details
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (!string.IsNullOrWhiteSpace(errorContent))
+                {
+                    Console.WriteLine($"[AuthApiClient] Error details: {errorContent}");
+                }
             }
         }
         catch (Exception ex)
@@ -86,8 +129,17 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
         }
         finally
         {
-            // Always clear token from storage, regardless of API success
+            // STEP 5: Clean up HTTP client headers
+            _httpClient.DefaultRequestHeaders.Authorization = null;
+            
+            // STEP 6: Dispose response if it was created
+            response?.Dispose();
+            
+            // STEP 7: Always clear token from storage, regardless of API success
+            // This ensures user can always logout from the UI perspective
+            Console.WriteLine("[AuthApiClient] Clearing token from storage...");
             await _tokenStorage.ClearAsync();
+            Console.WriteLine("[AuthApiClient] Token cleared from storage");
         }
     }
 
@@ -101,9 +153,8 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
 
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                return json;
+                return null;
 
-            // Try common error message properties
             if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
                 return msg.GetString();
 
@@ -113,7 +164,6 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
             if (doc.RootElement.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
                 return title.GetString();
 
-            // Handle ASP.NET Core validation errors (ModelState errors)
             if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
             {
                 var lines = new List<string>();
@@ -136,8 +186,7 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
                     return string.Join(" | ", lines);
             }
 
-            // Fallback to raw JSON
-            return json;
+            return null;
         }
         catch
         {

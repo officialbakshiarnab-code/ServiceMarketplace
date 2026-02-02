@@ -53,6 +53,8 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
+        RequireExpirationTime = true,
+        ClockSkew = TimeSpan.Zero,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
@@ -62,6 +64,24 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
+        OnAuthenticationFailed = async context =>
+        {
+            if (context.Exception is SecurityTokenExpiredException)
+            {
+                var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+                var tokenValue = !string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                    ? authHeader["Bearer ".Length..].Trim()
+                    : null;
+
+                using var scope = context.HttpContext.RequestServices.CreateScope();
+                var authService = scope.ServiceProvider.GetRequiredService<IAuthService>();
+
+                await authService.HandleTokenExpiredAsync(
+                    tokenValue,
+                    context.Request.Headers.UserAgent.ToString(),
+                    context.HttpContext.Connection.RemoteIpAddress?.ToString());
+            }
+        },
         OnChallenge = async context =>
         {
             if (context.Handled)
@@ -121,6 +141,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
 builder.Services.AddScoped<IBidService, BidService>();
 builder.Services.AddScoped<INotificationService, EmailNotificationService>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // ==============================
 // CONTROLLERS + SWAGGER

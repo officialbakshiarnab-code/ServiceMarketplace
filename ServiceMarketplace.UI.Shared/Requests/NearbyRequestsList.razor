@@ -1,0 +1,85 @@
+@using ServiceMarketplace.Application.DTOs
+@inject RequestsApiClient RequestsClient
+@inject NavigationManager Nav
+
+<div class="card mt-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <h5 class="mb-0">Available Requests</h5>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ReloadAsync" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+
+        @if (_loading)
+        {
+            <p class="text-muted mb-0">Loading...</p>
+        }
+        else if (_items.Count == 0)
+        {
+            <p class="text-muted mb-0">No open requests available.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var r in _items)
+                {
+                    <button class="list-group-item list-group-item-action" @onclick="() => GoToDetails(r.Id)">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">@r.Title</h6>
+                            <small class="text-muted">@r.CreatedAt.ToLocalTime().ToString("g")</small>
+                        </div>
+                        <p class="mb-1 text-muted">@r.Description</p>
+                        <div class="d-flex gap-3 text-muted small">
+                            <span>@r.Category</span>
+                            <span>@r.Location</span>
+                            <span>Bids: @r.BidCount</span>
+                        </div>
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool _loading;
+    private string? _error;
+    private List<ServiceRequestDto> _items = [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _error = null;
+        _loading = true;
+
+        try
+        {
+            _items = await RequestsClient.GetAvailableRequestsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load available requests right now.");
+            _items = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void GoToDetails(Guid requestId) => Nav.NavigateTo($"/provider/requests/{requestId}");
+}

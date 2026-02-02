@@ -1,94 +1,44 @@
 ﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using ServiceMarketplace.API.Models.Auth;
-using ServiceMarketplace.Domain.Entities;
-using ServiceMarketplace.Infrastructure.Data;
+using ServiceMarketplace.Application.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 
 namespace ServiceMarketplace.API.Controllers;
 
 /// <summary>
 /// Authentication controller with comprehensive audit trail.
 /// Handles user registration, login with JWT issuance, and logout with session tracking.
-/// All authentication events are logged to LoginAuditLog for security monitoring.
+/// All authentication events are logged to AuditLog for security monitoring.
 /// </summary>
 [ApiController]
 [Route("api/auth")]
-public class AuthController : ControllerBase
+public class AuthController(IAuthService authService) : ControllerBase
 {
-    private readonly UserManager<IdentityUser> _userManager;
-    private readonly RoleManager<IdentityRole> _roleManager;
-    private readonly IConfiguration _configuration;
-    private readonly AppDbContext _context;
-    private readonly ILogger<AuthController> _logger;
-
-    public AuthController(
-        UserManager<IdentityUser> userManager,
-        RoleManager<IdentityRole> roleManager,
-        IConfiguration configuration,
-        AppDbContext context,
-        ILogger<AuthController> logger)
-    {
-        _userManager = userManager;
-        _roleManager = roleManager;
-        _configuration = configuration;
-        _context = context;
-        _logger = logger;
-    }
-
     /// <summary>
     /// Registers a new user with the specified role.
     /// Creates user account in ASP.NET Identity and assigns role.
     /// </summary>
     /// <param name="request">Registration details (email, password, role)</param>
     /// <returns>Success message or validation errors</returns>
+    [AllowAnonymous]
     [HttpPost("register")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register(RegisterRequest request)
     {
-        // Check if user already exists
-        var userExists = await _userManager.FindByEmailAsync(request.Email);
-        if (userExists != null)
-        {
-            _logger.LogWarning("Registration attempt for existing email: {Email}", request.Email);
-            return BadRequest("User already exists");
-        }
-
-        // Create new user
-        var user = new IdentityUser
-        {
-            UserName = request.Email,
-            Email = request.Email,
-            EmailConfirmed = false // Can be set to true for development
-        };
-
-        var result = await _userManager.CreateAsync(user, request.Password);
+        var result = await authService.RegisterAsync(request.Email, request.Password, request.Role);
         if (!result.Succeeded)
         {
-            _logger.LogWarning("User creation failed for {Email}: {Errors}", 
-                request.Email, 
-                string.Join(", ", result.Errors.Select(e => e.Description)));
-            return BadRequest(result.Errors);
+            if (!string.IsNullOrWhiteSpace(result.Error))
+                return BadRequest(result.Error);
+
+            if (result.Errors is { Count: > 0 })
+                return BadRequest(result.Errors);
+
+            return BadRequest("Registration failed");
         }
-
-        // Ensure role exists
-        if (!await _roleManager.RoleExistsAsync(request.Role))
-        {
-            await _roleManager.CreateAsync(new IdentityRole(request.Role));
-            _logger.LogInformation("Created new role: {Role}", request.Role);
-        }
-
-        // Assign role to user
-        await _userManager.AddToRoleAsync(user, request.Role);
-
-        _logger.LogInformation("User registered successfully: {Email} with role {Role}", 
-            request.Email, request.Role);
 
         return Ok("User registered successfully");
     }
@@ -99,87 +49,40 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <param name="request">Login credentials (email, password)</param>
     /// <returns>JWT token and expiration time</returns>
+    [AllowAnonymous]
     [HttpPost("login")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login(LoginRequest request)
     {
-        // Find user by email
-        var user = await _userManager.FindByEmailAsync(request.Email);
-        if (user == null)
-        {
-            _logger.LogWarning("Login attempt for non-existent user: {Email}", request.Email);
-            return Unauthorized("Invalid credentials");
-        }
-
-        // Verify password
-        var validPassword = await _userManager.CheckPasswordAsync(user, request.Password);
-        if (!validPassword)
-        {
-            _logger.LogWarning("Failed login attempt for user: {Email}", request.Email);
-            return Unauthorized("Invalid credentials");
-        }
-
-        // Get user roles
-        var roles = await _userManager.GetRolesAsync(user);
-
-        // Generate unique session ID for audit tracking
-        var sessionId = Guid.NewGuid().ToString();
-
-        // Build JWT claims
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, user.Id),
-            new(ClaimTypes.Email, user.Email!),
-            new(JwtRegisteredClaimNames.Jti, sessionId), // Session ID for tracking
-            new(JwtRegisteredClaimNames.Sub, user.Id),   // Standard subject claim
-            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
-        };
-
-        // Add role claims
-        foreach (var role in roles)
-            claims.Add(new Claim(ClaimTypes.Role, role));
-
-        // Generate JWT token with 10-minute expiration for security
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expirationTime = DateTime.UtcNow.AddMinutes(10);
-
-        var token = new JwtSecurityToken(
-            issuer: _configuration["Jwt:Issuer"],
-            audience: _configuration["Jwt:Audience"],
-            claims: claims,
-            expires: expirationTime,
-            signingCredentials: credentials
-        );
-
-        // Record login audit entry
-        var auditEntry = new LoginAuditLog
-        {
-            UserId = user.Id,
-            SessionId = sessionId,
-            LoginTime = DateTime.UtcNow,
-            IpAddress = GetClientIpAddress(),
-            UserAgent = Request.Headers.UserAgent.ToString(),
-            Platform = Request.Headers["X-Platform"].FirstOrDefault() ?? "Unknown"
-        };
-
-        _context.LoginAuditLogs.Add(auditEntry);
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation("User logged in successfully: {Email}, SessionId: {SessionId}", 
-            user.Email, sessionId);
+        var result = await authService.LoginAsync(request.Email, request.Password, Request.Headers.UserAgent.ToString(), GetClientIpAddress());
+        if (!result.Succeeded || result.Payload == null)
+            return Unauthorized(result.Error ?? "Invalid credentials");
 
         return Ok(new AuthResponse
         {
-            Token = new JwtSecurityTokenHandler().WriteToken(token),
-            ExpiresAt = token.ValidTo
+            Token = result.Payload.Token,
+            ExpiresAt = result.Payload.ExpiresAt
         });
     }
 
     /// <summary>
-    /// Logs out the current user by recording logout timestamp.
-    /// Client is responsible for removing JWT from local storage.
+    /// Logs out the current user by creating a new audit log record.
+    /// 
+    /// CRITICAL BEHAVIOR:
+    /// - Requires valid JWT authentication ([Authorize] attribute)
+    /// - Extracts UserId, SessionId, and Role from JWT claims
+    /// - Creates a NEW AuditLogs row with:
+    ///   * EventType = "Logout"
+    ///   * TimestampUtc = DateTime.UtcNow
+    ///   * UserId, Role, SessionId from JWT
+    ///   * IpAddress and UserAgent from request
+    /// - NEVER updates existing rows (append-only audit trail)
+    /// - Client is responsible for removing JWT from local storage after this call
+    /// 
+    /// AUDIT TRAIL:
+    /// Each logout generates exactly ONE new row in AuditLogs table.
+    /// This ensures complete audit trail for compliance and security monitoring.
     /// </summary>
     /// <returns>Success message</returns>
     [HttpPost("logout")]
@@ -189,34 +92,46 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Logout()
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
         var sessionId = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
 
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(sessionId))
-        {
-            _logger.LogWarning("Logout attempted with invalid token claims");
-            return BadRequest("Invalid token claims");
-        }
+            return Unauthorized(new { error = "Invalid token claims" });
 
-        // Find and update audit entry with logout time
-        var auditEntry = await _context.LoginAuditLogs
-            .FirstOrDefaultAsync(log => log.SessionId == sessionId && log.UserId == userId);
-
-        if (auditEntry != null)
-        {
-            auditEntry.LogoutTime = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("User logged out: UserId={UserId}, SessionId={SessionId}", 
-                userId, sessionId);
-        }
-        else
-        {
-            _logger.LogWarning("Logout audit entry not found: UserId={UserId}, SessionId={SessionId}", 
-                userId, sessionId);
-        }
+        // Creates a NEW audit log row with EventType="Logout" (append-only, never updates)
+        await authService.LogoutAsync(userId, sessionId, role, Request.Headers.UserAgent.ToString(), GetClientIpAddress());
 
         return Ok(new { message = "Logged out successfully" });
+    }
+
+    /// <summary>
+    /// Notifies the backend that a JWT token has expired on the client.
+    /// Creates a SessionExpired audit log entry.
+    /// Called by TokenAuthenticationStateProvider when the 10-minute session timer fires.
+    /// 
+    /// Endpoint behavior:
+    /// - Accepts expired token (no [Authorize] attribute required)
+    /// - Extracts userId, sessionId, and role from token claims
+    /// - Creates exactly one AuditLog entry with EventType="SessionExpired"
+    /// - Uses SessionId to prevent duplicate entries for the same session
+    /// 
+    /// Why not [Authorize]?
+    /// The token is already expired on the client, so JWT validation would fail.
+    /// We manually parse the token to extract claims for audit purposes.
+    /// </summary>
+    /// <param name="request">Contains the expired JWT token</param>
+    /// <returns>Success message or error</returns>
+    [HttpPost("token-expired")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> TokenExpired(TokenExpiredRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return BadRequest("Token is required");
+
+        await authService.HandleTokenExpiredAsync(request.Token, Request.Headers.UserAgent.ToString(), GetClientIpAddress());
+        return Ok(new { message = "Token expiry recorded" });
     }
 
     /// <summary>
@@ -225,17 +140,22 @@ public class AuthController : ControllerBase
     /// <returns>Client IP address or null if unavailable</returns>
     private string? GetClientIpAddress()
     {
-        // Check for proxy headers first
         var forwardedFor = Request.Headers["X-Forwarded-For"].FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(forwardedFor))
-        {
-            // Take the first IP if multiple are present
             return forwardedFor.Split(',')[0].Trim();
-        }
 
-        // Fallback to direct connection IP
         return HttpContext.Connection.RemoteIpAddress?.ToString();
     }
 }
+
+/// <summary>
+/// Request payload for token-expired endpoint.
+/// Contains the expired token for audit log extraction.
+/// </summary>
+public class TokenExpiredRequest
+{
+    public string Token { get; set; } = string.Empty;
+}
+
 
 

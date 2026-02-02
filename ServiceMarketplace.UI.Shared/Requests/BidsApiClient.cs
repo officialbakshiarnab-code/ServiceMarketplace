@@ -32,6 +32,17 @@ public sealed class BidsApiClient(HttpClient httpClient, ITokenStorage tokenStor
         return await response.Content.ReadFromJsonAsync<List<BidDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
+    public async Task<List<ProviderBidDto>> GetMyBidsAsync(CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.GetAsync("api/bids/mine", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load your bids.");
+
+        return await response.Content.ReadFromJsonAsync<List<ProviderBidDto>>(cancellationToken: cancellationToken) ?? [];
+    }
+
     private async Task AttachBearerAsync(CancellationToken cancellationToken)
     {
         _ = cancellationToken;
@@ -50,38 +61,38 @@ public sealed class BidsApiClient(HttpClient httpClient, ITokenStorage tokenStor
                 return null;
 
             using var doc = JsonDocument.Parse(text);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return null;
+
+            if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
+                return msg.GetString();
+
+            if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
+                return err.GetString();
+
+            if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
             {
-                if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
-                    return msg.GetString();
-
-                if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
-                    return err.GetString();
-
-                if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+                var lines = new List<string>();
+                foreach (var prop in errors.EnumerateObject())
                 {
-                    var lines = new List<string>();
-                    foreach (var prop in errors.EnumerateObject())
+                    if (prop.Value.ValueKind == JsonValueKind.Array)
                     {
-                        if (prop.Value.ValueKind == JsonValueKind.Array)
-                        {
-                            var messages = prop.Value.EnumerateArray()
-                                .Where(e => e.ValueKind == JsonValueKind.String)
-                                .Select(e => e.GetString())
-                                .Where(s => !string.IsNullOrWhiteSpace(s));
+                        var messages = prop.Value.EnumerateArray()
+                            .Where(e => e.ValueKind == JsonValueKind.String)
+                            .Select(e => e.GetString())
+                            .Where(s => !string.IsNullOrWhiteSpace(s));
 
-                            var joined = string.Join("; ", messages!);
-                            if (!string.IsNullOrWhiteSpace(joined))
-                                lines.Add($"{prop.Name}: {joined}");
-                        }
+                        var joined = string.Join("; ", messages!);
+                        if (!string.IsNullOrWhiteSpace(joined))
+                            lines.Add($"{prop.Name}: {joined}");
                     }
-
-                    if (lines.Count > 0)
-                        return string.Join(" | ", lines);
                 }
+
+                if (lines.Count > 0)
+                    return string.Join(" | ", lines);
             }
 
-            return text;
+            return null;
         }
         catch
         {

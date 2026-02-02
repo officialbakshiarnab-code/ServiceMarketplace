@@ -10,5 +10,8 @@ public class BidDto
     public string ServiceProviderId { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public DateTime ProposedDateTime { get; set; }
+    public string? Message { get; set; }
     public BidStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

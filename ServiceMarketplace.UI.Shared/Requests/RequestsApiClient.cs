@@ -17,7 +17,8 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         await AttachBearerAsync(cancellationToken);
 
         using var response = await _httpClient.PostAsJsonAsync("api/requests", dto, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to create request.");
 
         var payload = await response.Content.ReadFromJsonAsync<CreateServiceRequestResponse>(cancellationToken: cancellationToken);
         if (payload is null)
@@ -48,6 +49,61 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
+    public async Task<List<ServiceRequestDto>> GetMyRequestsAsync(CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.GetAsync("api/requests/mine", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load your requests.");
+
+        return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
+    }
+
+    public async Task<List<ServiceRequestDto>> GetAvailableRequestsAsync(CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.GetAsync("api/requests/available", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load available requests.");
+
+        return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
+    }
+
+    public async Task<ServiceRequestDto> GetByIdAsync(Guid requestId, CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.GetAsync($"api/requests/{requestId}", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load request.");
+
+        var request = await response.Content.ReadFromJsonAsync<ServiceRequestDto>(cancellationToken: cancellationToken);
+        return request ?? throw new InvalidOperationException("Empty response from server.");
+    }
+
+    public async Task<ServiceRequestDto> GetRequestDetailsAsync(Guid requestId, CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.GetAsync($"api/requests/{requestId}/details", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load request details.");
+
+        var request = await response.Content.ReadFromJsonAsync<ServiceRequestDto>(cancellationToken: cancellationToken);
+        return request ?? throw new InvalidOperationException("Empty response from server.");
+    }
+
+    public async Task AcceptBidAsync(Guid requestId, Guid bidId, CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.PostAsync($"api/requests/{requestId}/accept/{bidId}", null, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to accept bid.");
+    }
+
     private async Task AttachBearerAsync(CancellationToken cancellationToken)
     {
         _ = cancellationToken;
@@ -66,38 +122,38 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
                 return null;
 
             using var doc = JsonDocument.Parse(text);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return null;
+
+            if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
+                return msg.GetString();
+
+            if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
+                return err.GetString();
+
+            if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
             {
-                if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
-                    return msg.GetString();
-
-                if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
-                    return err.GetString();
-
-                if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+                var lines = new List<string>();
+                foreach (var prop in errors.EnumerateObject())
                 {
-                    var lines = new List<string>();
-                    foreach (var prop in errors.EnumerateObject())
+                    if (prop.Value.ValueKind == JsonValueKind.Array)
                     {
-                        if (prop.Value.ValueKind == JsonValueKind.Array)
-                        {
-                            var messages = prop.Value.EnumerateArray()
-                                .Where(e => e.ValueKind == JsonValueKind.String)
-                                .Select(e => e.GetString())
-                                .Where(s => !string.IsNullOrWhiteSpace(s));
+                        var messages = prop.Value.EnumerateArray()
+                            .Where(e => e.ValueKind == JsonValueKind.String)
+                            .Select(e => e.GetString())
+                            .Where(s => !string.IsNullOrWhiteSpace(s));
 
-                            var joined = string.Join("; ", messages!);
-                            if (!string.IsNullOrWhiteSpace(joined))
-                                lines.Add($"{prop.Name}: {joined}");
-                        }
+                        var joined = string.Join("; ", messages!);
+                        if (!string.IsNullOrWhiteSpace(joined))
+                            lines.Add($"{prop.Name}: {joined}");
                     }
-
-                    if (lines.Count > 0)
-                        return string.Join(" | ", lines);
                 }
+
+                if (lines.Count > 0)
+                    return string.Join(" | ", lines);
             }
 
-            return text;
+            return null;
         }
         catch
         {

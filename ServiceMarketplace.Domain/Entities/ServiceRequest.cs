@@ -8,6 +8,8 @@ public class ServiceRequest : BaseAuditableEntity
 
     public string Title { get; set; } = null!;
     public string Description { get; set; } = null!;
+    public string Category { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
 
     public double Latitude { get; set; }
     public double Longitude { get; set; }
@@ -16,3 +18,4 @@ public class ServiceRequest : BaseAuditableEntity
 
     public ICollection<Bid> Bids { get; set; } = new List<Bid>();
 }
+

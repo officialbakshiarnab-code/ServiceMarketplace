@@ -10,8 +10,10 @@ public class Bid : BaseAuditableEntity
 
     public decimal Amount { get; set; }
     public DateTime ProposedDateTime { get; set; }
+    public string? Message { get; set; }
 
     public BidStatus Status { get; set; } = BidStatus.Pending;
 
     public ServiceRequest ServiceRequest { get; set; } = null!;
 }
+

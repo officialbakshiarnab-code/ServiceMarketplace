@@ -1,0 +1,32 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using ServiceMarketplace.UI.Shared.Auth
+
+<AuthorizeView Roles="@RoleNames.User">
+    <Authorized>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/user/create-request">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Create Request
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/user/my-requests">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> My Requests
+            </NavLink>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+<AuthorizeView Roles="@RoleNames.Provider">
+    <Authorized>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/provider/available-requests">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Available Requests
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/provider/my-bids">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> My Bids
+            </NavLink>
+        </div>
+    </Authorized>
+</AuthorizeView>

@@ -90,13 +90,12 @@
         }
         catch (HttpRequestException ex)
         {
-            // WHY: API returned 400/401/500 - AuthApiClient parses response body
-            _error = $"Login failed: {ex.Message}";
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Login failed. Please try again.");
             Console.Error.WriteLine($"[Login] HTTP error: {ex.Message}");
         }
         catch (Exception ex)
         {
-            _error = $"Unexpected error: {ex.Message}";
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unexpected error during login.");
             Console.Error.WriteLine($"[Login] Unexpected error: {ex}");
         }
         finally

@@ -220,6 +220,55 @@ namespace ServiceMarketplace.Infrastructure.Migrations
                     b.ToTable("UserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.AuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("TimestampUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("IX_AuditLogs_SessionId");
+
+                    b.HasIndex("TimestampUtc")
+                        .IsDescending()
+                        .HasDatabaseName("IX_AuditLogs_TimestampUtc");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_AuditLogs_UserId");
+
+                    b.ToTable("AuditLogs");
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Bid", b =>
                 {
                     b.Property<Guid>("Id")
@@ -232,6 +281,9 @@ namespace ServiceMarketplace.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Message")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("ProposedDateTime")
                         .HasColumnType("datetime2");
@@ -256,66 +308,15 @@ namespace ServiceMarketplace.Infrastructure.Migrations
                     b.ToTable("Bids");
                 });
 
-            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.LoginAuditLog", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)");
-
-                    b.Property<string>("LoginProvider")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("JWT");
-
-                    b.Property<DateTime>("LoginTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("LogoutTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Platform")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("UserAgent")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LoginTime")
-                        .IsDescending()
-                        .HasDatabaseName("IX_LoginAuditLog_LoginTime");
-
-                    b.HasIndex("SessionId")
-                        .HasDatabaseName("IX_LoginAuditLog_SessionId");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("IX_LoginAuditLog_UserId");
-
-                    b.ToTable("LoginAuditLogs");
-                });
-
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceRequest", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -330,6 +331,10 @@ namespace ServiceMarketplace.Infrastructure.Migrations
 
                     b.Property<double>("Latitude")
                         .HasColumnType("float");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<double>("Longitude")
                         .HasColumnType("float");

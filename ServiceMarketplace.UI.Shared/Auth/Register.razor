@@ -103,13 +103,12 @@
         }
         catch (HttpRequestException ex)
         {
-            // WHY: API returned 400/409 (user exists) - AuthApiClient parses response body
-            _error = $"Registration failed: {ex.Message}";
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Registration failed. Please try again.");
             Console.Error.WriteLine($"[Register] HTTP error: {ex.Message}");
         }
         catch (Exception ex)
         {
-            _error = $"Unexpected error: {ex.Message}";
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unexpected error during registration.");
             Console.Error.WriteLine($"[Register] Unexpected error: {ex}");
         }
         finally
@@ -137,4 +136,4 @@
         [Required(ErrorMessage = "Please select a role")]
         public string Role { get; set; } = "User";
     }
-}
+}}

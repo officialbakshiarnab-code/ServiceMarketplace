@@ -1,0 +1,153 @@
+@page "/provider/my-bids"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject BidsApiClient BidsClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+@code {
+    private bool _isAuthenticated;
+    private string? _role;
+    private bool _loading = true;
+    private string? _error;
+    private List<ProviderBidDto> _bids = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAuthenticated = await AuthState.IsAuthenticatedAsync();
+        _role = await AuthState.GetRoleAsync();
+
+        if (!_isAuthenticated)
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        if (!string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        {
+            Nav.NavigateTo("/provider/dashboard", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        _loading = true;
+
+        try
+        {
+            _bids = await BidsClient.GetMyBidsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load bids right now.");
+            _bids = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        await LoadAsync();
+    }
+}
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">My Bids</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back to Dashboard</button>
+    </div>
+
+    <AuthorizeView Roles="@RoleNames.Provider">
+        <Authorized>
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <h5 class="mb-0">Bids Summary</h5>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshAsync" disabled="@_loading">
+                            @if (_loading)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            }
+                            else
+                            {
+                                <span>Refresh</span>
+                            }
+                        </button>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_error))
+                    {
+                        <div class="alert alert-danger" role="alert">@_error</div>
+                    }
+
+                    @if (_loading)
+                    {
+                        <p class="text-muted mb-0">Loading...</p>
+                    }
+                    else if (_bids.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No bids yet. Browse available requests to start bidding.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var bid in _bids)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <div>
+                                            <h6 class="mb-1">@bid.RequestTitle</h6>
+                                            <p class="mb-1 small">
+                                                <strong>Bid:</strong> $@bid.Amount.ToString("0.00")
+                                            </p>
+                                            @if (!string.IsNullOrWhiteSpace(bid.Message))
+                                            {
+                                                <p class="mb-1 small text-muted">@bid.Message</p>
+                                            }
+                                            <p class="mb-0 small text-muted">
+                                                Proposed: @bid.ProposedDateTime.ToLocalTime().ToString("g")
+                                            </p>
+                                        </div>
+                                        <div class="text-end">
+                                            <span class="badge @GetStatusBadgeClass(bid.Status) mb-2">@bid.Status</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-warning" role="alert">
+                <strong>Unauthorized Access</strong>
+                <p class="mb-0">You do not have permission to access this page.</p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private void GoBack() => Nav.NavigateTo("/provider/dashboard");
+
+    private string GetStatusBadgeClass(BidStatus status)
+    {
+        return status switch
+        {
+            BidStatus.Pending => "bg-warning",
+            BidStatus.Accepted => "bg-success",
+            BidStatus.Rejected => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+}
