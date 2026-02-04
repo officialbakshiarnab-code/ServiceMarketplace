@@ -1,12 +1,18 @@
 @page "/user/dashboard"
+@using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
 @inject NavigationManager Nav
 @inject AuthState AuthState
 @inject AuthRedirector Redirector
+@inject RequestsApiClient RequestsClient
 
 @code {
     private bool _isAuthenticated;
     private string? _role;
+    private bool _loadingStats = true;
+    private string? _statsError;
+    private UserDashboardStatsDto? _stats;
 
     protected override async Task OnInitializedAsync()
     {
@@ -26,7 +32,42 @@
         {
             Console.WriteLine("[UserDashboard] ServiceProvider detected, redirecting");
             await Redirector.RedirectToDashboardAsync();
+            return;
         }
+
+        // Load dashboard stats
+        await LoadStatsAsync();
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        _loadingStats = true;
+        _statsError = null;
+
+        try
+        {
+            _stats = await RequestsClient.GetDashboardStatsAsync();
+            Console.WriteLine($"[UserDashboard] Stats loaded: Open={_stats.OpenRequestsCount}, Bids={_stats.ActiveBidsCount}, Completed={_stats.CompletedRequestsCount}");
+        }
+        catch (Exception ex)
+        {
+            _statsError = $"Failed to load stats: {ex.Message}";
+            Console.WriteLine($"[UserDashboard] Error loading stats: {ex.Message}");
+        }
+        finally
+        {
+            _loadingStats = false;
+        }
+    }
+
+    /// <summary>
+    /// Refresh stats after user performs an action (e.g., creates a request).
+    /// Call this from parent component or after navigation back to dashboard.
+    /// </summary>
+    public async Task RefreshStatsAsync()
+    {
+        await LoadStatsAsync();
+        StateHasChanged();
     }
 
     private void GoToCreateRequest() => Nav.NavigateTo("/user/create-request");
@@ -77,18 +118,51 @@
                             <h5 class="mb-0">Stats</h5>
                         </div>
                         <div class="card-body">
-                            <div class="mb-3">
-                                <h6 class="text-muted">Open Requests</h6>
-                                <h3 class="mb-0">0</h3>
-                            </div>
-                            <div class="mb-3">
-                                <h6 class="text-muted">Active Bids</h6>
-                                <h3 class="mb-0">0</h3>
-                            </div>
-                            <div>
-                                <h6 class="text-muted">Completed</h6>
-                                <h3 class="mb-0">0</h3>
-                            </div>
+                            @if (_loadingStats)
+                            {
+                                <div class="text-center py-3">
+                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <p class="text-muted small mt-2 mb-0">Loading stats...</p>
+                                </div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(_statsError))
+                            {
+                                <div class="alert alert-warning py-2 mb-0" role="alert">
+                                    <small>@_statsError</small>
+                                </div>
+                            }
+                            else if (_stats != null)
+                            {
+                                <div class="mb-3">
+                                    <h6 class="text-muted">Open Requests</h6>
+                                    <h3 class="mb-0 text-primary">@_stats.OpenRequestsCount</h3>
+                                    <small class="text-muted">Currently accepting bids</small>
+                                </div>
+                                <hr />
+                                <div class="mb-3">
+                                    <h6 class="text-muted">Active Bids</h6>
+                                    <h3 class="mb-0 text-info">@_stats.ActiveBidsCount</h3>
+                                    <small class="text-muted">Bids received on open requests</small>
+                                </div>
+                                <hr />
+                                <div class="mb-3">
+                                    <h6 class="text-muted">Completed</h6>
+                                    <h3 class="mb-0 text-success">@_stats.CompletedRequestsCount</h3>
+                                    <small class="text-muted">Service completed or cancelled</small>
+                                </div>
+                                <hr />
+                                <div>
+                                    <h6 class="text-muted">Total Requests</h6>
+                                    <h3 class="mb-0">@_stats.TotalRequestsCount</h3>
+                                    <small class="text-muted">All time</small>
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="text-muted mb-0">No stats available</p>
+                            }
                         </div>
                     </div>
                 </div>

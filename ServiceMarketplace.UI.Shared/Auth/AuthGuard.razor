@@ -1,0 +1,64 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.Logging
+@using ServiceMarketplace.UI.Shared.Auth
+
+@if (!_isReady)
+{
+    <div class="alert alert-info d-flex align-items-center" role="status">
+        <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+        <span>Initializing authentication...</span>
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_initError))
+{
+    <div class="alert alert-danger" role="alert">
+        <strong>Authentication Error:</strong> @_initError
+        <p class="mb-0 mt-2">
+            <small>Please refresh the page or clear your browser cache.</small>
+        </p>
+    </div>
+}
+else
+{
+    @ChildContent
+}
+
+@code {
+    /// <summary>
+    /// Child content to render only after authentication state is fully initialized.
+    /// Prevents "flash" of wrong authorization state during component initialization.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Inject]
+    public required TokenAuthenticationStateProvider AuthStateProvider { get; set; }
+
+    [Inject]
+    public required ILogger<AuthGuard> Logger { get; set; }
+
+    private bool _isReady;
+    private string? _initError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            Logger.LogInformation("[AuthStateGuard] Waiting for authentication state to initialize...");
+
+            // Call GetAuthenticationStateAsync to ensure the provider is initialized
+            // This waits for the token to be read from storage and validated
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+
+            _isReady = true;
+            Logger.LogInformation("[AuthStateGuard] Authentication state ready. User authenticated: {IsAuthenticated}",
+                authState.User.Identity?.IsAuthenticated ?? false);
+        }
+        catch (Exception ex)
+        {
+            _initError = "Failed to initialize authentication. Please try again.";
+            Logger.LogError(ex, "[AuthStateGuard] Failed to initialize authentication state: {Error}", ex.Message);
+            _isReady = true; // Mark as ready even on error to show error message
+        }
+    }
+}

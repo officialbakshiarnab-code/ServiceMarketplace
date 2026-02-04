@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Domain.Entities;
 using ServiceMarketplace.Infrastructure.Data;
@@ -13,6 +14,12 @@ namespace ServiceMarketplace.Infrastructure.Services;
 /// </summary>
 public sealed class AuditLogService(AppDbContext context, ILogger<AuditLogService> logger) : IAuditLogService
 {
+    public async Task LogRegistrationAsync(string userId, string role)
+    {
+        await RecordEventAsync(userId, role, "Registration", null, null, null);
+        logger.LogInformation("Registration event recorded for user {UserId}, role {Role}", userId, role);
+    }
+
     public async Task LogLoginAsync(string userId, string? role, string sessionId, string? ipAddress, string? userAgent)
     {
         await RecordEventAsync(userId, role, "Login", sessionId, ipAddress, userAgent);
@@ -53,6 +60,80 @@ public sealed class AuditLogService(AppDbContext context, ILogger<AuditLogServic
         await RecordEventAsync(userId, role, "SessionExpired", sessionId, ipAddress, userAgent);
         logger.LogInformation("SessionExpired event recorded for user {UserId}, session {SessionId}", userId, sessionId);
         return true;
+    }
+
+    public async Task<AuditLogQueryResponse> QueryAuditLogsAsync(AuditLogQueryRequest request)
+    {
+        // Start with base query
+        var query = context.AuditLogs.AsNoTracking();
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(request.UserId))
+        {
+            query = query.Where(a => a.UserId == request.UserId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.EventType))
+        {
+            query = query.Where(a => a.EventType == request.EventType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Role))
+        {
+            query = query.Where(a => a.Role == request.Role);
+        }
+
+        if (request.StartDate.HasValue)
+        {
+            query = query.Where(a => a.TimestampUtc >= request.StartDate.Value);
+        }
+
+        if (request.EndDate.HasValue)
+        {
+            // Include entire end date (until 23:59:59)
+            var endDateInclusive = request.EndDate.Value.Date.AddDays(1).AddTicks(-1);
+            query = query.Where(a => a.TimestampUtc <= endDateInclusive);
+        }
+
+        // Get total count before pagination
+        var totalCount = await query.CountAsync();
+
+        // Apply sorting
+        query = request.SortOrder?.ToLower() == "asc"
+            ? query.OrderBy(a => a.TimestampUtc)
+            : query.OrderByDescending(a => a.TimestampUtc);
+
+        // Validate and apply pagination
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var skip = (page - 1) * pageSize;
+
+        var items = await query
+            .Skip(skip)
+            .Take(pageSize)
+            .Select(a => new AuditLogDto
+            {
+                Id = a.Id,
+                UserId = a.UserId,
+                Role = a.Role,
+                EventType = a.EventType,
+                TimestampUtc = a.TimestampUtc,
+                SessionId = a.SessionId,
+                IpAddress = a.IpAddress,
+                UserAgent = a.UserAgent
+            })
+            .ToListAsync();
+
+        logger.LogInformation("Queried audit logs: TotalCount={TotalCount}, Page={Page}, PageSize={PageSize}",
+            totalCount, page, pageSize);
+
+        return new AuditLogQueryResponse
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount
+        };
     }
 
     /// <summary>

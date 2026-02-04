@@ -48,13 +48,21 @@ public static class MauiProgram
         // Configure authorization
         builder.Services.AddAuthorizationCore();
 
+        // Configure HTTP client handler that automatically attaches JWT tokens
+        builder.Services.AddScoped<AuthorizingHttpClientHandler>();
+
         // Configure HTTP client for API calls with platform identification
         builder.Services.AddScoped(sp =>
         {
             var config = sp.GetRequiredService<IConfiguration>();
             var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(config);
+            var handler = sp.GetRequiredService<AuthorizingHttpClientHandler>();
             
-            var httpClient = new HttpClient { BaseAddress = apiBaseUri };
+            var httpClient = new HttpClient(handler)
+            { 
+                BaseAddress = apiBaseUri,
+                Timeout = TimeSpan.FromSeconds(30)
+            };
             
             // Add platform header for audit logging
 #if ANDROID
@@ -79,6 +87,10 @@ public static class MauiProgram
         builder.Services.AddScoped<AuthRedirector>();
         builder.Services.AddScoped<AuthState>();
 
+        // Configure auth state initialization
+        builder.Services.AddScoped<AuthenticationStateInitializer>();
+        builder.Services.AddScoped<SafeLogoutService>();
+
         // Configure API clients
         builder.Services.AddScoped<AuthApiClient>();
         builder.Services.AddScoped<RequestsApiClient>();
@@ -87,7 +99,37 @@ public static class MauiProgram
         // Configure platform-specific services
         builder.Services.AddScoped<ITokenStorage, MauiTokenStorage>();
 
-        return builder.Build();
+        // Build app
+        var app = builder.Build();
+
+        // INITIALIZATION: Initialize auth state in the background
+        // This happens asynchronously without blocking app startup
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var authStateInitializer = app.Services.GetRequiredService<AuthenticationStateInitializer>();
+                var authStateProvider = app.Services.GetRequiredService<TokenAuthenticationStateProvider>();
+
+                await authStateInitializer.InitializeAsync(async () =>
+                {
+                    var tokenStorage = app.Services.GetRequiredService<ITokenStorage>();
+                    var token = await tokenStorage.GetTokenAsync();
+                    
+                    if (!string.IsNullOrWhiteSpace(token))
+                    {
+                        // Token exists - notify provider to parse and validate it
+                        authStateProvider.NotifyAuthenticationStateChanged();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MauiProgram] Error initializing auth state: {ex.Message}");
+            }
+        });
+
+        return app;
     }
 
     /// <summary>
@@ -133,3 +175,4 @@ public static class MauiProgram
         }
     }
 }
+

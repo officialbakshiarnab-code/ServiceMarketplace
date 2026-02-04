@@ -1,0 +1,341 @@
+@page "/admin/dashboard"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Admin
+@using ServiceMarketplace.UI.Shared.Auth
+@inject AdminKpiApiClient KpiClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<PageTitle>Admin Dashboard</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Admin Dashboard</h2>
+        <div>
+            <button class="btn btn-outline-primary me-2" @onclick="RefreshKpisAsync" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                }
+                else
+                {
+                    <i class="bi bi-arrow-clockwise me-1"></i>
+                }
+                Refresh
+            </button>
+            <LogoutButton />
+        </div>
+    </div>
+
+    <AuthorizeView Roles="@RoleNames.Admin">
+        <Authorized>
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="alert alert-danger" role="alert">
+                    <strong>Error:</strong> @_error
+                </div>
+            }
+
+            @if (_loading && _kpis == null)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Loading dashboard metrics...</p>
+                </div>
+            }
+            else if (_kpis != null)
+            {
+                <!-- User Counts Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4 class="mb-3">User Statistics</h4>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-primary">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Total Users</h6>
+                                <h2 class="mb-0 text-primary">@_kpis.UserCounts.TotalUsers</h2>
+                                <small class="text-muted">All registered users</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-info">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Users</h6>
+                                <h2 class="mb-0 text-info">@_kpis.UserCounts.UsersCount</h2>
+                                <small class="text-muted">Can create requests</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-success">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Service Providers</h6>
+                                <h2 class="mb-0 text-success">@_kpis.UserCounts.ServiceProvidersCount</h2>
+                                <small class="text-muted">Can place bids</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-warning">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Admins</h6>
+                                <h2 class="mb-0 text-warning">@_kpis.UserCounts.AdminsCount</h2>
+                                <small class="text-muted">Full system access</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Service Requests Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4 class="mb-3">Service Requests</h4>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Total Requests</h6>
+                                <h2 class="mb-0">@_kpis.RequestStats.TotalRequests</h2>
+                                <small class="text-muted">All time</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Open</h6>
+                                <h2 class="mb-0 text-primary">@_kpis.RequestStats.OpenRequests</h2>
+                                <small class="text-muted">Accepting bids</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Accepted</h6>
+                                <h2 class="mb-0 text-info">@_kpis.RequestStats.AcceptedRequests</h2>
+                                <small class="text-muted">In progress</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="text-muted text-uppercase mb-2">Completed</h6>
+                                <h2 class="mb-0 text-success">@_kpis.RequestStats.CompletedRequests</h2>
+                                <small class="text-muted">@_kpis.RequestStats.CompletionRate% completion rate</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bids & Authentication Section -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h4 class="mb-3">Bid Statistics</h4>
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-6 mb-3">
+                                        <h6 class="text-muted text-uppercase">Total Bids</h6>
+                                        <h3 class="mb-0">@_kpis.BidStats.TotalBids</h3>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <h6 class="text-muted text-uppercase">Avg Per Request</h6>
+                                        <h3 class="mb-0">@_kpis.BidStats.AverageBidsPerRequest</h3>
+                                    </div>
+                                    <div class="col-4">
+                                        <h6 class="text-muted text-uppercase">Pending</h6>
+                                        <h4 class="mb-0 text-warning">@_kpis.BidStats.PendingBids</h4>
+                                    </div>
+                                    <div class="col-4">
+                                        <h6 class="text-muted text-uppercase">Accepted</h6>
+                                        <h4 class="mb-0 text-success">@_kpis.BidStats.AcceptedBids</h4>
+                                    </div>
+                                    <div class="col-4">
+                                        <h6 class="text-muted text-uppercase">Rejected</h6>
+                                        <h4 class="mb-0 text-danger">@_kpis.BidStats.RejectedBids</h4>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h4 class="mb-3">Authentication (Last 30 Days)</h4>
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-6 mb-3">
+                                        <h6 class="text-muted text-uppercase">Successful Logins</h6>
+                                        <h3 class="mb-0 text-success">@_kpis.AuthStats.SuccessfulLogins</h3>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <h6 class="text-muted text-uppercase">Failed Attempts</h6>
+                                        <h3 class="mb-0 text-danger">@_kpis.AuthStats.FailedLoginAttempts</h3>
+                                    </div>
+                                    <div class="col-6">
+                                        <h6 class="text-muted text-uppercase">Session Expirations</h6>
+                                        <h4 class="mb-0 text-info">@_kpis.AuthStats.SessionExpirations</h4>
+                                    </div>
+                                    <div class="col-6">
+                                        <h6 class="text-muted text-uppercase">Active Sessions</h6>
+                                        <h4 class="mb-0 text-primary">@_kpis.AuthStats.ActiveSessions</h4>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Audit Events Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4 class="mb-3">Recent Audit Events</h4>
+                        <div class="card">
+                            <div class="card-body">
+                                @if (_kpis.RecentAuditEvents.Any())
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-hover mb-0">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Timestamp (UTC)</th>
+                                                    <th>Event Type</th>
+                                                    <th>User ID</th>
+                                                    <th>Role</th>
+                                                    <th>IP Address</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var evt in _kpis.RecentAuditEvents)
+                                                {
+                                                    <tr>
+                                                        <td class="text-nowrap">@evt.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                                        <td>
+                                                            <span class="badge @GetEventBadgeClass(evt.EventType)">
+                                                                @evt.EventType
+                                                            </span>
+                                                        </td>
+                                                        <td class="font-monospace small">@TruncateString(evt.UserId, 12)</td>
+                                                        <td>@evt.Role</td>
+                                                        <td>@evt.IpAddress</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="text-muted mb-0">No recent audit events</p>
+                                }
+                            </div>
+                            <div class="card-footer">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="NavigateToAuditLogs">
+                                    View All Audit Logs
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-danger" role="alert">
+                <h4 class="alert-heading">Access Denied</h4>
+                <p>You do not have permission to view the admin dashboard. This page is only accessible to administrators.</p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private AdminDashboardKpiDto? _kpis;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if user is authenticated and is Admin
+        var isAuthenticated = await AuthState.IsAuthenticatedAsync();
+        var role = await AuthState.GetRoleAsync();
+
+        if (!isAuthenticated)
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        if (!string.Equals(role, RoleNames.Admin, StringComparison.Ordinal))
+        {
+            Nav.NavigateTo("/", forceLoad: false);
+            return;
+        }
+
+        await LoadKpisAsync();
+    }
+
+    private async Task LoadKpisAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _kpis = await KpiClient.GetDashboardKpisAsync();
+            Console.WriteLine($"[AdminDashboard] KPIs loaded successfully");
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            _error = "Access denied. You do not have permission to view admin metrics.";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load dashboard metrics: {ex.Message}";
+            Console.WriteLine($"[AdminDashboard] Error loading KPIs: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshKpisAsync()
+    {
+        await LoadKpisAsync();
+        StateHasChanged();
+    }
+
+    private void NavigateToAuditLogs()
+    {
+        Nav.NavigateTo("/admin/audit-logs");
+    }
+
+    private string GetEventBadgeClass(string eventType)
+    {
+        return eventType switch
+        {
+            "Login" => "bg-success",
+            "Logout" => "bg-info",
+            "Registration" => "bg-primary",
+            "SessionExpired" => "bg-warning text-dark",
+            "LoginFailed" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string TruncateString(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "-";
+
+        if (value.Length <= maxLength)
+            return value;
+
+        return value.Substring(0, maxLength) + "...";
+    }
+}

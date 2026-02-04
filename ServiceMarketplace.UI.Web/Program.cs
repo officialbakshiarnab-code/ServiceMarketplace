@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using ServiceMarketplace.UI.Shared.Admin;
 using ServiceMarketplace.UI.Shared.Auth;
 using ServiceMarketplace.UI.Shared.Configuration;
 using ServiceMarketplace.UI.Shared.Requests;
@@ -22,15 +23,32 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
+// Configure logging (required for AuthApiClient ILogger)
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+
 // Resolve API base URL from configuration (required)
 var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(builder.Configuration);
+
+// Configure HTTP client handler that automatically attaches JWT tokens
+// This handler intercepts every HTTP request and:
+// 1. Reads stored JWT token from LocalStorage
+// 2. Attaches it as Bearer authorization header
+// 3. Sends request to API
+// 4. Returns response
+// This eliminates need for manual token attachment in each API client
+builder.Services.AddScoped<AuthorizingHttpClientHandler>();
 
 // Configure HTTP client for API calls with platform identification
 builder.Services.AddScoped(sp =>
 {
-    var httpClient = new HttpClient
+    var handler = sp.GetRequiredService<AuthorizingHttpClientHandler>();
+    
+    // Create HttpClient with token handler as the inner handler
+    // Token handler will be called before request is sent to server
+    var httpClient = new HttpClient(handler)
     {
-        BaseAddress = apiBaseUri
+        BaseAddress = apiBaseUri,
+        Timeout = TimeSpan.FromSeconds(30)  // 30-second timeout for all requests
     };
     
     // Add platform header for audit logging
@@ -49,12 +67,50 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
 builder.Services.AddScoped<AuthRedirector>();
 builder.Services.AddScoped<AuthState>();
 
+// Configure new auth state management services
+builder.Services.AddScoped<AuthenticationStateInitializer>();
+builder.Services.AddScoped<SafeLogoutService>();
+
+// Configure token refresh HTTP client for automatic token refresh on 401
+builder.Services.AddScoped<TokenRefreshHttpClient>();
+
 // Configure API clients
 builder.Services.AddScoped<AuthApiClient>();
 builder.Services.AddScoped<RequestsApiClient>();
 builder.Services.AddScoped<BidsApiClient>();
+builder.Services.AddScoped<AuditLogsApiClient>();
+builder.Services.AddScoped<AdminKpiApiClient>();
 
 // Configure platform-specific services
 builder.Services.AddScoped<ITokenStorage, LocalStorageTokenStorage>();
 
-await builder.Build().RunAsync();
+// Role validation services (UI.Shared)
+builder.Services.AddScoped<RoleValidator>();
+
+var host = builder.Build();
+
+// INITIALIZATION: Restore authentication state from storage on app startup
+// This happens before rendering any components, so:
+// 1. Stored JWT token is read from LocalStorage (if exists)
+// 2. Token is validated and parsed
+// 3. AuthenticationStateProvider notified with restored claims
+// 4. <AuthorizeView> and <AuthorizeRouteView> components get correct auth state
+// 5. User sees their role-appropriate UI immediately without re-login
+var authStateInitializer = host.Services.GetRequiredService<AuthenticationStateInitializer>();
+var authStateProvider = host.Services.GetRequiredService<TokenAuthenticationStateProvider>();
+
+// Initialize auth state by notifying the provider
+await authStateInitializer.InitializeAsync(async () =>
+{
+    var tokenStorage = host.Services.GetRequiredService<ITokenStorage>();
+    var token = await tokenStorage.GetTokenAsync();
+    
+    if (!string.IsNullOrWhiteSpace(token))
+    {
+        // Token exists - notify provider to parse and validate it
+        authStateProvider.NotifyAuthenticationStateChanged();
+    }
+});
+
+await host.RunAsync();
+

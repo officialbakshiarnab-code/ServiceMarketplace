@@ -104,13 +104,28 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
             throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to accept bid.");
     }
 
+    /// <summary>
+    /// Get dashboard statistics for the current user.
+    /// Returns counts of open requests, active bids, and completed requests.
+    /// </summary>
+    public async Task<UserDashboardStatsDto> GetDashboardStatsAsync(CancellationToken cancellationToken = default)
+    {
+        await AttachBearerAsync(cancellationToken);
+
+        using var response = await _httpClient.GetAsync("api/requests/stats", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load dashboard stats.");
+
+        var stats = await response.Content.ReadFromJsonAsync<UserDashboardStatsDto>(cancellationToken: cancellationToken);
+        return stats ?? throw new InvalidOperationException("Empty response from server.");
+    }
+
     private async Task AttachBearerAsync(CancellationToken cancellationToken)
     {
         _ = cancellationToken;
-        var token = await _tokenStorage.GetTokenAsync();
-        _httpClient.DefaultRequestHeaders.Authorization = string.IsNullOrWhiteSpace(token)
-            ? null
-            : new AuthenticationHeaderValue("Bearer", token);
+        // AuthorizingHttpClientHandler automatically attaches token
+        // This method is kept for backwards compatibility
+        // No manual attachment needed here
     }
 
     private static async Task<string?> TryReadErrorAsync(HttpResponseMessage response)

@@ -1,0 +1,66 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+
+@*
+    Role-Based Content Component
+    
+    Displays content based on user's role from ClaimsPrincipal.
+    Eliminates manual role string checks in UI components.
+    
+    USAGE:
+    <RoleBasedContent Roles="User">
+        <Authorized>
+            <!-- Only users with "User" role see this -->
+        </Authorized>
+        <NotAuthorized>
+            <!-- Other users see this -->
+        </NotAuthorized>
+    </RoleBasedContent>
+    
+    MULTIPLE ROLES:
+    <RoleBasedContent Roles="User,Admin">
+        <!-- Shows for either User OR Admin role -->
+    </RoleBasedContent>
+    
+    ANY AUTHENTICATED USER:
+    <RoleBasedContent>
+        <!-- Shows for any authenticated user (no role check) -->
+    </RoleBasedContent>
+*@
+
+<CascadingAuthenticationState>
+    <AuthorizeView Roles="@Roles">
+        <Authorized>
+            @Authorized
+        </Authorized>
+        <NotAuthorized>
+            @NotAuthorized
+        </NotAuthorized>
+        <Authorizing>
+            <p>Loading authorization information...</p>
+        </Authorizing>
+    </AuthorizeView>
+</CascadingAuthenticationState>
+
+@code {
+    /// <summary>
+    /// Comma-separated list of roles required to see authorized content.
+    /// Example: "User" or "User,Admin" (shows for either role)
+    /// </summary>
+    [Parameter]
+    public string? Roles { get; set; }
+
+    /// <summary>
+    /// Content to show if user has one of the specified roles.
+    /// Gets the ClaimsPrincipal and checks role claims.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? Authorized { get; set; }
+
+    /// <summary>
+    /// Content to show if user doesn't have one of the specified roles.
+    /// Shown to anonymous users or users with different roles.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? NotAuthorized { get; set; }
+}

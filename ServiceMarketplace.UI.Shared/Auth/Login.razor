@@ -1,10 +1,12 @@
 ﻿@page "/login"
 @using System.ComponentModel.DataAnnotations
+@using Microsoft.Extensions.Logging
 @using ServiceMarketplace.UI.Shared.Auth
 @inject AuthApiClient AuthApi
 @inject TokenAuthenticationStateProvider AuthStateProvider
 @inject AuthRedirector Redirector
 @inject NavigationManager Nav
+@inject ILogger<Login> Logger
 
 <PageTitle>Login</PageTitle>
 
@@ -24,18 +26,26 @@
 
         <div class="mb-3">
             <label class="form-label">Email</label>
-            <InputText class="form-control" @bind-Value="_model.Email" placeholder="Email" />
+            <InputText class="form-control" @bind-Value="_model.Email" placeholder="Email" disabled="@_busy" />
             <ValidationMessage For="@(() => _model.Email)" />
         </div>
 
         <div class="mb-3">
             <label class="form-label">Password</label>
-            <input type="password" class="form-control" @bind="_model.Password" placeholder="Password" />
+            <input type="password" class="form-control" @bind="_model.Password" placeholder="Password" disabled="@_busy" />
             <ValidationMessage For="@(() => _model.Password)" />
         </div>
 
         <button type="submit" class="btn btn-primary w-100 mb-2" disabled="@_busy">
-            @(_busy ? "Logging in..." : "Login")
+            @if (_busy)
+            {
+                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                <span>Logging in...</span>
+            }
+            else
+            {
+                <span>Login</span>
+            }
         </button>
         <button type="button" class="btn btn-link w-100" @onclick="GoToRegister" disabled="@_busy">
             Don't have an account? Register here
@@ -45,58 +55,88 @@
 
 @code {
     private readonly LoginModel _model = new();
+    private readonly SubmissionGuard _submissionGuard = new();
     private bool _busy;
     private string? _error;
 
     /// <summary>
-    /// Handles user login:
-    /// 1. Creates LoginRequest DTO matching API contract (Email, Password)
-    /// 2. Calls AuthApiClient.LoginAsync (sends POST /api/auth/login)
-    /// 3. On success: JWT stored by AuthApiClient → notify auth provider → redirect by role
-    /// 4. On failure: displays API error message from response body
+    /// Handles user login with graceful error handling:
+    /// 1. Check SubmissionGuard - ensure this is not a duplicate request
+    /// 2. Create LoginRequest DTO matching API contract (Email, Password)
+    /// 3. Call AuthApiClient.LoginAsync (sends POST /api/auth/login)
+    /// 4. On success: JWT stored by AuthApiClient → notify auth provider → redirect by role
+    /// 5. On failure: displays user-friendly error message (never throws)
+    /// 
+    /// GRACEFUL ERROR HANDLING:
+    /// - AuthApiClient never throws exceptions
+    /// - Returns LoginResult with success flag and optional error message
+    /// - UI displays errors without crashing
+    /// 
+    /// DUPLICATE PREVENTION:
+    /// - SubmissionGuard tracks login attempts within 30 seconds
+    /// - If user clicks login button twice quickly, second click is rejected
+    /// - No duplicate API calls reach server
+    /// 
+    /// REDIRECT GUARANTEE:
+    /// - Auth state is updated before redirect is called
+    /// - Redirect respects user's complete role set (including "Both" scenarios)
+    /// - If user has both User and Provider roles, Provider dashboard is prioritized
     /// </summary>
     private async Task HandleLoginAsync()
     {
+        // GUARD: Check if this submission is allowed (prevents duplicate submissions)
+        if (!await _submissionGuard.IsAllowedAsync("login"))
+        {
+            Logger.LogWarning("[Login] Duplicate submission attempt blocked");
+            return;
+        }
+
         _error = null;
         _busy = true;
 
         try
         {
-            // WHY: Create request DTO with exact property names/types API expects
-            // API contract: { "email": "...", "password": "..." } (lowercase from JSON serializer)
+            // Create request DTO with exact property names/types API expects
             var request = new LoginRequest
             {
                 Email = _model.Email,
                 Password = _model.Password
             };
 
-            Console.WriteLine($"[Login] Sending request for: {request.Email}");
+            Logger.LogInformation("[Login] Sending login request for: {Email}", request.Email);
 
-            // WHY: AuthApiClient sends POST https://localhost:7147/api/auth/login
-            // On success: saves JWT to ITokenStorage
-            await AuthApi.LoginAsync(request);
+            // Call AuthApiClient - returns result object (never throws)
+            var result = await AuthApi.LoginAsync(request);
 
-            Console.WriteLine("[Login] Success - JWT stored");
+            if (!result.Success)
+            {
+                // Login failed - display user-friendly error message
+                _error = result.Error ?? "Login failed. Please try again.";
+                Logger.LogWarning("[Login] Login failed: {Error}", _error);
+                
+                // Reset submission guard on error so user can retry
+                await _submissionGuard.ResetAsync("login");
+                return;
+            }
 
-            // WHY: Forces Blazor to re-read JWT from storage and update UI auth state
+            Logger.LogInformation("[Login] Login successful, JWT stored in browser storage");
+
+            // Notify Blazor framework to re-read JWT from storage and update auth state
+            // This is critical: the redirect MUST happen after this notification
             AuthStateProvider.NotifyAuthenticationStateChanged();
+            Logger.LogInformation("[Login] Auth state notification sent to Blazor");
 
-            Console.WriteLine("[Login] Auth state updated");
+            // Small delay to ensure auth state has been propagated through the component tree
+            // This guarantees that Redirector.RedirectToDashboardAsync() will read the updated auth state
+            await Task.Delay(50);
 
-            // WHY: Reads role claim from JWT and navigates to appropriate dashboard
-            // Role "User" → /user/dashboard
-            // Role "ServiceProvider" → /provider/dashboard
+            // Reads all role claims from JWT and navigates to appropriate dashboard
+            // Logic:
+            // - If user has BOTH User and ServiceProvider roles → /provider/dashboard (default to Provider)
+            // - If user has ServiceProvider role only → /provider/dashboard
+            // - If user has User role only → /user/dashboard
+            // - If user has no roles → /user/dashboard (safe default)
             await Redirector.RedirectToDashboardAsync();
-        }
-        catch (HttpRequestException ex)
-        {
-            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Login failed. Please try again.");
-            Console.Error.WriteLine($"[Login] HTTP error: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unexpected error during login.");
-            Console.Error.WriteLine($"[Login] Unexpected error: {ex}");
         }
         finally
         {

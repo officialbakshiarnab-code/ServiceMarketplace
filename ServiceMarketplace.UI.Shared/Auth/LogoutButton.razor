@@ -1,18 +1,25 @@
-@inject AuthApiClient AuthApi
-@inject TokenAuthenticationStateProvider AuthStateProvider
-@inject NavigationManager Nav
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.Logging
+@using ServiceMarketplace.UI.Shared.Auth
 
-<button type="button" class="btn btn-outline-danger @CssClass" @onclick="HandleLogoutAsync" disabled="@_busy">
-    @if (_busy)
-    {
-        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-        <span>Signing out...</span>
-    }
-    else
-    {
-        <text>Sign Out</text>
-    }
-</button>
+<AuthorizeView>
+    <Authorized>
+        <div class="nav-item px-3">
+            <button type="button" class="nav-link btn btn-link text-danger" @onclick="HandleLogoutAsync" disabled="@_isBusy" title="Sign out">
+                @if (_isBusy)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Signing out...</span>
+                }
+                else
+                {
+                    <span class="bi bi-box-arrow-right me-1" aria-hidden="true"></span>
+                    <span>Sign Out</span>
+                }
+            </button>
+        </div>
+    </Authorized>
+</AuthorizeView>
 
 @code {
     /// <summary>
@@ -21,7 +28,16 @@
     [Parameter]
     public string? CssClass { get; set; }
 
-    private bool _busy;
+    [Inject]
+    public required SafeLogoutService LogoutService { get; set; }
+
+    [Inject]
+    public required NavigationManager Nav { get; set; }
+
+    [Inject]
+    public required ILogger<LogoutButton> Logger { get; set; }
+
+    private bool _isBusy;
 
     /// <summary>
     /// Handles logout process with guaranteed audit trail:
@@ -46,42 +62,37 @@
     /// </summary>
     private async Task HandleLogoutAsync()
     {
-        _busy = true;
+        if (_isBusy)
+            return; // Prevent concurrent logouts
+
+        _isBusy = true;
         try
         {
-            Console.WriteLine("[LogoutButton] ========== LOGOUT FLOW STARTED ==========");
+            Logger.LogInformation("[LogoutButton] Starting logout sequence");
 
-            // STEP 1: Call API logout endpoint (creates audit record) BEFORE clearing token
-            // This ensures the JWT is still valid for the [Authorize] attribute
-            Console.WriteLine("[LogoutButton] STEP 1: Calling AuthApi.LogoutAsync()...");
-            await AuthApi.LogoutAsync();
-            Console.WriteLine("[LogoutButton] STEP 1: AuthApi.LogoutAsync() completed");
+            // SafeLogoutService handles the complete logout sequence:
+            // 1. API call (creates audit record)
+            // 2. Clear token
+            // 3. Clear auth state
+            await LogoutService.LogoutAsync();
 
-            // STEP 2: Update auth state immediately
-            Console.WriteLine("[LogoutButton] STEP 2: Updating auth state...");
-            await AuthStateProvider.SignOutAsync();
-            Console.WriteLine("[LogoutButton] STEP 2: Auth state updated");
-
-            // STEP 3: Navigate to login with force reload to clear any cached state
-            Console.WriteLine("[LogoutButton] STEP 3: Navigating to /login...");
-            Nav.NavigateTo("/login", forceLoad: true);
+            Logger.LogInformation("[LogoutButton] Logout sequence completed, redirecting to login");
             
-            Console.WriteLine("[LogoutButton] ========== LOGOUT FLOW COMPLETED ==========");
+            // Navigate after logout is complete
+            Nav.NavigateTo("/login", forceLoad: true);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[LogoutButton] ========== LOGOUT FLOW ERROR ==========");
-            Console.Error.WriteLine($"[LogoutButton] Error: {ex.Message}");
-            Console.Error.WriteLine($"[LogoutButton] Stack trace: {ex.StackTrace}");
-
+            Logger.LogError(ex, "[LogoutButton] Error during logout: {Error}", ex.Message);
+            
             // Even if logout fails, still navigate to login
             // This ensures user can always log out from UI perspective
-            Console.WriteLine("[LogoutButton] Forcing navigation to /login despite error...");
+            Logger.LogInformation("[LogoutButton] Forcing navigation to /login despite error");
             Nav.NavigateTo("/login", forceLoad: true);
         }
         finally
         {
-            _busy = false;
+            _isBusy = false;
         }
     }
 }

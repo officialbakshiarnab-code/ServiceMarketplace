@@ -259,4 +259,47 @@ public class ServiceRequestService : IServiceRequestService
 
         await _notificationService.NotifyBidAcceptedAsync(selectedBid.Id);
     }
+
+    public async Task<UserDashboardStatsDto> GetDashboardStatsAsync(string userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException("User ID is required");
+
+        // Efficient single query to get all stats at once (no N+1 problem)
+        // Groups requests by status and counts them in a single database roundtrip
+        var requestStats = await _context.ServiceRequests
+            .Where(r => r.CustomerId == userId)
+            .GroupBy(r => 1) // Group all into one group to aggregate
+            .Select(g => new
+            {
+                OpenCount = g.Count(r => r.Status == ServiceRequestStatus.Open),
+                CompletedCount = g.Count(r => r.Status == ServiceRequestStatus.Closed),
+                TotalCount = g.Count(),
+                // Count active bids on open requests (single query)
+                ActiveBidsCount = g
+                    .Where(r => r.Status == ServiceRequestStatus.Open)
+                    .Sum(r => r.Bids.Count)
+            })
+            .FirstOrDefaultAsync();
+
+        // If user has no requests yet, return zeros
+        if (requestStats == null)
+        {
+            return new UserDashboardStatsDto
+            {
+                OpenRequestsCount = 0,
+                ActiveBidsCount = 0,
+                CompletedRequestsCount = 0,
+                TotalRequestsCount = 0
+            };
+        }
+
+        return new UserDashboardStatsDto
+        {
+            OpenRequestsCount = requestStats.OpenCount,
+            ActiveBidsCount = requestStats.ActiveBidsCount,
+            CompletedRequestsCount = requestStats.CompletedCount,
+            TotalRequestsCount = requestStats.TotalCount
+        };
+    }
 }

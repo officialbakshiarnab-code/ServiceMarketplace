@@ -13,4 +13,12 @@ public interface IServiceRequestService
     Task<ServiceRequestDto> GetByIdForUserAsync(Guid requestId, string userId);
     Task<ServiceRequestDto> GetByIdForProviderAsync(Guid requestId, string providerId);
     Task AcceptBidAsync(Guid requestId, Guid bidId, string userId);
+    
+    /// <summary>
+    /// Get dashboard statistics for the current user.
+    /// Includes counts of open requests, active bids, and completed requests.
+    /// </summary>
+    /// <param name="userId">User ID to get stats for</param>
+    /// <returns>Dashboard statistics</returns>
+    Task<UserDashboardStatsDto> GetDashboardStatsAsync(string userId);
 }
