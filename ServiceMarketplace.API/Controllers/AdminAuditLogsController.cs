@@ -14,7 +14,7 @@ namespace ServiceMarketplace.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/audit-logs")]
-[Authorize(Roles = RoleConstants.Admin)]
+[Authorize(Policy = "BothRoleOnly")]
 [EnableRateLimiting("admin")]
 public class AdminAuditLogsController(
     IAuditLogService auditLogService,

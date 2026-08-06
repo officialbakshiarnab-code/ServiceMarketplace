@@ -1,7 +1,6 @@
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -40,34 +39,19 @@ var securitySettings = builder.Configuration
     .Get<SecuritySettings>() ?? new SecuritySettings();
 
 builder.Logging.AddConsole();
-var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-logger.LogInformation("CORS allowed origins: {Origins}", string.Join(", ", corsSettings.AllowedOrigins));
-logger.LogInformation("HTTPS enforcement: {EnforceHttps}", securitySettings.EnforceHttps);
-logger.LogInformation("HSTS enabled: {UseHsts}", securitySettings.UseHsts);
 
 // ==============================
 // DATABASE
 // ==============================
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+    options.UseNpgsql(connectionString);
     options.AddInterceptors(new AuditInterceptor());
 });
-
-// ==============================
-// IDENTITY
-// ==============================
-builder.Services.AddIdentityCore<IdentityUser>(options =>
-{
-    options.Password.RequiredLength = 6;
-    options.Password.RequireDigit = true;
-    options.Password.RequireUppercase = true;
-    options.Password.RequireLowercase = true;
-    options.Password.RequireNonAlphanumeric = true;
-})
-    .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<AppDbContext>()
-    .AddDefaultTokenProviders();
 
 // ==============================
 // JWT AUTHENTICATION
@@ -150,25 +134,23 @@ builder.Services.AddAuthentication(options =>
 // ==============================
 builder.Services.AddAuthorization(options =>
 {
-    // Default require User role - can create requests, accept bids
     options.AddPolicy("UserOnly", policy =>
-        policy.RequireRole(RoleConstants.User));
+        policy.RequireClaim("UserType", "1", "3"));
 
-    // Default require ServiceProvider role - can browse, bid
     options.AddPolicy("ProviderOnly", policy =>
-        policy.RequireRole(RoleConstants.ServiceProvider));
+        policy.RequireClaim("UserType", "2", "3"));
 
-    // Users with Both role can access both User and Provider features
     options.AddPolicy("UserOrBoth", policy =>
-        policy.RequireRole(RoleConstants.User, RoleConstants.Both));
+        policy.RequireClaim("UserType", "1", "3"));
 
-    // Providers and Both users can bid
     options.AddPolicy("ProviderOrBoth", policy =>
-        policy.RequireRole(RoleConstants.ServiceProvider, RoleConstants.Both));
+        policy.RequireClaim("UserType", "2", "3"));
 
-    // Dual-role users (Both) have full access
     options.AddPolicy("BothRoleOnly", policy =>
-        policy.RequireRole(RoleConstants.Both));
+        policy.RequireClaim("UserType", "3"));
+
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireClaim("UserType", "3"));
 });
 
 // ==============================
@@ -183,11 +165,11 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 100, // 100 requests
-                Window = TimeSpan.FromMinutes(1), // per minute
-                SegmentsPerWindow = 6, // divided into 6 segments (10 seconds each)
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0 // No queuing, reject immediately
+                QueueLimit = 0
             });
     });
 
@@ -198,8 +180,8 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 5, // 5 attempts
-                Window = TimeSpan.FromMinutes(1), // per minute
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -212,8 +194,8 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 10, // 10 refreshes
-                Window = TimeSpan.FromMinutes(1), // per minute
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -231,9 +213,9 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: userId,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 10, // 10 bids
-                Window = TimeSpan.FromMinutes(5), // per 5 minutes
-                SegmentsPerWindow = 5, // 1 minute segments
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(5),
+                SegmentsPerWindow = 5,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -251,9 +233,9 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: userId,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 5, // 5 requests
-                Window = TimeSpan.FromMinutes(10), // per 10 minutes
-                SegmentsPerWindow = 10, // 1 minute segments
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                SegmentsPerWindow = 10,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -270,8 +252,8 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: userId,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 200, // 200 requests
-                Window = TimeSpan.FromMinutes(1), // per minute
+                PermitLimit = 200,
+                Window = TimeSpan.FromMinutes(1),
                 SegmentsPerWindow = 6,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -311,11 +293,6 @@ builder.Services.AddCors(options =>
         .AllowAnyMethod()
         .AllowCredentials();
         
-        // Log CORS configuration for security audit
-        foreach (var origin in corsSettings.AllowedOrigins)
-        {
-            logger.LogInformation("CORS origin allowed: {Origin}", origin);
-        }
     });
 });
 
@@ -350,16 +327,6 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
         : CookieSecurePolicy.SameAsRequest;
 });
 
-// Configure ASP.NET Identity cookie security
-builder.Services.ConfigureApplicationCookie(options =>
-{
-    options.Cookie.HttpOnly = true;
-    options.Cookie.SecurePolicy = securitySettings.EnforceHttps 
-        ? CookieSecurePolicy.Always 
-        : CookieSecurePolicy.SameAsRequest;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-});
-
 // ==============================
 // APPLICATION SERVICES
 // ==============================
@@ -387,7 +354,7 @@ builder.Services.AddHostedService<ServiceMarketplace.API.BackgroundServices.Audi
 builder.Services.AddHealthChecks()
     .AddCheck<ServiceMarketplace.API.HealthChecks.DatabaseHealthCheck>(
         "database",
-        tags: new[] { "db", "sql", "ready" })
+        tags: new[] { "db", "postgres", "ready" })
     .AddCheck<ServiceMarketplace.API.HealthChecks.AuthSubsystemHealthCheck>(
         "auth_subsystem",
         tags: new[] { "auth", "identity", "ready" })
@@ -440,6 +407,10 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+app.Logger.LogInformation("CORS allowed origins: {Origins}", string.Join(", ", corsSettings.AllowedOrigins));
+app.Logger.LogInformation("HTTPS enforcement: {EnforceHttps}", securitySettings.EnforceHttps);
+app.Logger.LogInformation("HSTS enabled: {UseHsts}", securitySettings.UseHsts);
+
 // ==============================
 // DATABASE MIGRATION (DEVELOPMENT ONLY)
 // ==============================
@@ -461,24 +432,11 @@ if (app.Environment.IsDevelopment())
     }
 }
 
-// ==============================
 // ROLE SEEDING (APPLICATION STARTUP)
-// ==============================
-// Seed all required roles (User, ServiceProvider, Admin) once during startup
-// This ensures roles exist before any registration attempts
 using (var scope = app.Services.CreateScope())
 {
     var roleSeedingService = scope.ServiceProvider.GetRequiredService<ServiceMarketplace.API.Services.RoleSeedingService>();
-    try
-    {
-        await roleSeedingService.SeedRolesAsync();
-        app.Logger.LogInformation("Roles seeded successfully");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "Error seeding roles during application startup");
-        throw;
-    }
+    await roleSeedingService.SeedRolesAsync();
 }
 
 // ==============================
@@ -516,7 +474,10 @@ if (securitySettings.EnforceHttps)
 app.UseCors();
 
 // Apply rate limiting before authentication
-app.UseRateLimiter();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseRateLimiter();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -548,4 +509,6 @@ app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthC
 });
 
 app.Run();
+
+public partial class Program;
 

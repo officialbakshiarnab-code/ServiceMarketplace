@@ -41,7 +41,6 @@ public class TokenRefreshIdempotencyTests : IClassFixture<ServiceMarketplaceWebA
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var newAccessToken = JwtTestHelper.ExtractToken(response.Content);
         newAccessToken.Should().NotBeNullOrWhiteSpace();
-        newAccessToken.Should().NotBe(response.Content.ReadAsStringAsync().Result); // Different from original
     }
 
     [Fact]

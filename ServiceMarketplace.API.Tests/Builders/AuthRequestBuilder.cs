@@ -12,6 +12,9 @@ public sealed class AuthRequestBuilder
     private string _email = "test@example.com";
     private string _password = "Test@123456";
     private string _role = RoleConstants.User;
+    private string _firstName = "Test";
+    private string _lastName = "User";
+    private DateTime _dateOfBirth = DateTime.UtcNow.AddYears(-25);
 
     public AuthRequestBuilder WithEmail(string email)
     {
@@ -49,7 +52,10 @@ public sealed class AuthRequestBuilder
         {
             Email = _email,
             Password = _password,
-            Role = _role
+            Role = _role,
+            FirstName = _firstName,
+            LastName = _lastName,
+            DateOfBirth = _dateOfBirth
         };
     }
 

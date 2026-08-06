@@ -1,16 +1,16 @@
 namespace ServiceMarketplace.Domain.Enums;
 
 /// <summary>
-/// User type enumeration for classifying users by their role(s) in the system.
-/// Stored as INT in the database for efficiency and flexibility.
+/// User type enumeration for classifying users by their primary account type.
+/// Backing type is short to ensure SMALLINT storage in the database.
 /// </summary>
-public enum UserType
+public enum UserType : short
 {
     /// <summary>
-    /// Regular user who can create service requests and accept bids.
+    /// Customer (regular user) who can create service requests.
     /// Value: 1
     /// </summary>
-    User = 1,
+    Customer = 1,
 
     /// <summary>
     /// Service provider who can browse requests and place bids.
@@ -19,8 +19,8 @@ public enum UserType
     Provider = 2,
 
     /// <summary>
-    /// User with both roles - can create requests and place bids.
+    /// Administrator account with elevated privileges.
     /// Value: 3
     /// </summary>
-    Both = 3
+    Admin = 3
 }

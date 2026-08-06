@@ -28,6 +28,7 @@ public interface IAuthService
         object? governmentIdImage = null);
 
     Task<AuthLoginResult> LoginAsync(string email, string password, string? userAgent, string? ipAddress);
+    Task<AuthLoginResult> LoginWithIdentifierAsync(string identifier, string password, string? userAgent, string? ipAddress);
     Task LogoutAsync(string userId, string sessionId, string? role, string? userAgent, string? ipAddress);
     Task HandleTokenExpiredAsync(string? tokenValue, string? userAgent, string? ipAddress);
     

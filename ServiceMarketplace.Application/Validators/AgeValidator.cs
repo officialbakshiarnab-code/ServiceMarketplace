@@ -6,10 +6,10 @@ namespace ServiceMarketplace.Application.Validators;
 /// <summary>
 /// Validates user age requirements based on their role/UserType.
 /// 
-/// Rules:
-/// - User role (UserType.User = 1): No age restriction
-/// - ServiceProvider role (UserType.Provider = 2): Must be 18+ years old
-/// - Both role (UserType.Both = 3): Must be 18+ years old
+    /// Rules:
+    /// - Customer (UserType.Customer = 1): No age restriction
+    /// - Provider (UserType.Provider = 2): Must be 18+ years old
+    /// - Admin (UserType.Admin = 3): No age restriction
 /// </summary>
 public static class AgeValidator
 {
@@ -94,16 +94,14 @@ public static class AgeValidator
         // Apply age restrictions based on UserType
         switch (userType)
         {
-            case UserType.User:
-                // User role has no age restriction, but validate reasonable age
+            case UserType.Customer:
+                // Customer has no age restriction, but validate reasonable age
                 if (age > 150)
                 {
                     return AgeValidationResult.Failed("Invalid date of birth provided");
                 }
                 break;
-
             case UserType.Provider:
-            case UserType.Both:
                 // Providers must be 18+
                 if (age < MinimumAgeForProvider)
                 {
@@ -112,7 +110,9 @@ public static class AgeValidator
                         $"You are currently {age} years old.");
                 }
                 break;
-
+            case UserType.Admin:
+                // Admin has no restriction
+                break;
             default:
                 return AgeValidationResult.Failed($"Unknown user type: {userType}");
         }
@@ -146,9 +146,9 @@ public static class AgeValidator
     {
         return userType switch
         {
-            UserType.User => null,
+            UserType.Customer => null,
             UserType.Provider => MinimumAgeForProvider,
-            UserType.Both => MinimumAgeForProvider,
+            UserType.Admin => null,
             _ => null
         };
     }

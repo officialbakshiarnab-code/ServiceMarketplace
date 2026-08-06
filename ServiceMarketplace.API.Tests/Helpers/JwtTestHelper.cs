@@ -19,6 +19,9 @@ public static class JwtTestHelper
         if (doc.RootElement.TryGetProperty("token", out var token))
             return token.GetString();
 
+        if (doc.RootElement.TryGetProperty("accessToken", out var accessToken))
+            return accessToken.GetString();
+
         return null;
     }
 

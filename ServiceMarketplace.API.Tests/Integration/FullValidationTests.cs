@@ -197,7 +197,7 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
     }
 
     [Fact]
-    public async Task RoleBasedAccess_UserCannot AccessProviderEndpoints()
+    public async Task RoleBasedAccess_UserCannotAccessProviderEndpoints()
     {
         // Arrange
         var (token, _) = await LoginAsUserAsync();
@@ -424,7 +424,8 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
         var json = await loginResponse.Content.ReadAsStringAsync();
-        var token = JsonDocument.Parse(json).RootElement.GetProperty("token").GetString();
+        var token = JsonDocument.Parse(json).RootElement.GetProperty("token").GetString()
+            ?? throw new InvalidOperationException("No token returned");
 
         SetAuthHeader(token);
 
@@ -463,8 +464,8 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
         var loginResp = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
         loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var token = JwtTestHelper.ExtractToken(loginResp.Content);
-        token.Should().NotBeNullOrWhiteSpace();
+        var token = JwtTestHelper.ExtractToken(loginResp.Content)
+            ?? throw new InvalidOperationException("No token returned");
 
         // Act 3 - Access protected resource
         SetAuthHeader(token);

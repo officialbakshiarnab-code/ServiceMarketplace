@@ -22,12 +22,7 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
 {
     /// <summary>
     /// Registers a new user with the specified role.
-    /// Creates user account in ASP.NET Identity and assigns role.
-    /// Optionally accepts a government-issued ID image for verification.
-    /// 
-    /// Supports both form-encoded and multipart/form-data submissions:
-    /// - Form-encoded: No file upload, GovernmentIdImage is ignored
-    /// - Multipart/form-data: Can include GovernmentIdImage file
+    /// Creates a custom auth user and assigns marketplace roles.
     /// 
     /// Validates role against RoleConstants.AllRoles.
     /// Validates age requirements based on role.
@@ -36,12 +31,6 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
     /// - User role: No age restriction
     /// - ServiceProvider role: Must be 18+ years old
     /// - Both role: Must be 18+ years old
-    /// 
-    /// Government ID Upload:
-    /// - Optional: Registration succeeds even if file is missing
-    /// - Non-blocking: File validation errors don't block registration
-    /// - Image only: JPEG, PNG, GIF, WebP supported
-    /// - Size limit: Max 5MB
     /// 
     /// RETRY-SAFE (Idempotent):
     /// - Same registration request (email + password + role) submitted multiple times
@@ -52,7 +41,7 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
     /// 
     /// Rate Limited: 5 requests per minute per IP address.
     /// </summary>
-    /// <param name="request">Registration details (email, password, role, firstName, lastName, dateOfBirth, optional file)</param>
+    /// <param name="request">Registration details.</param>
     /// <returns>Success message or validation errors</returns>
     [AllowAnonymous]
     [HttpPost("register")]
@@ -60,12 +49,11 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    [Consumes("application/x-www-form-urlencoded", "multipart/form-data")]
-    public async Task<IActionResult> Register([FromForm] RegisterRequest request)
+    [Consumes("application/json")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         try
         {
-            // Validate input
             if (request == null)
             {
                 logger.LogWarning("[AuthController] Register: Request is null");
@@ -96,7 +84,6 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 return BadRequest(new { error = "Last name is required" });
             }
 
-            // Validate role
             if (!RoleConstants.IsValidRole(request.Role))
             {
                 logger.LogWarning("[AuthController] Register: Invalid role provided: {Role}. Valid roles: {ValidRoles}",
@@ -104,7 +91,6 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 return BadRequest(new { error = $"Invalid role. Valid roles are: {string.Join(", ", RoleConstants.AllRoles)}" });
             }
 
-            // Validate age requirements based on role
             var ageValidation = AgeValidator.ValidateAge(request.DateOfBirth, request.Role);
             if (!ageValidation.IsValid)
             {
@@ -123,7 +109,7 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 request.FirstName,
                 request.LastName,
                 request.DateOfBirth,
-                request.GovernmentIdImage as object);  // Cast to object for service layer
+                request.GovernmentIdImage);
             
             if (!result.Succeeded)
             {
@@ -137,16 +123,12 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 logger.LogWarning("[AuthController] Register: Registration failed for {Email}: {Error}",
                     request.Email, errorMessage);
 
-                // Return 400 Bad Request (not 409 Conflict) for consistency with idempotency
-                // The error message indicates the specific reason (user exists, role mismatch, etc.)
                 return BadRequest(new { error = errorMessage });
             }
 
             logger.LogInformation("[AuthController] Register: User {Email} registered successfully with role {Role}",
                 request.Email, request.Role);
 
-            // Return 200 OK for both new registrations and idempotent retries
-            // This allows clients to safely retry on network failures
             return Ok(new { message = "User registered successfully" });
         }
         catch (InvalidOperationException ex)
@@ -194,17 +176,16 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
     {
         try
         {
-            // Validate input
             if (request == null)
             {
                 logger.LogWarning("[AuthController] Login: Request is null");
                 return BadRequest(new { error = "Invalid request" });
             }
 
-            if (string.IsNullOrWhiteSpace(request.Email))
+            if (string.IsNullOrWhiteSpace(request.Identifier))
             {
-                logger.LogWarning("[AuthController] Login: Email is empty");
-                return BadRequest(new { error = "Email is required" });
+                logger.LogWarning("[AuthController] Login: Identifier is empty");
+                return BadRequest(new { error = "Identifier is required" });
             }
 
             if (string.IsNullOrWhiteSpace(request.Password))
@@ -213,27 +194,27 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 return BadRequest(new { error = "Password is required" });
             }
 
-            logger.LogInformation("[AuthController] Login: Attempting to login user {Email}", request.Email);
+            logger.LogInformation("[AuthController] Login: Attempting to login identifier {Identifier}", request.Identifier);
 
-            var result = await authService.LoginAsync(request.Email, request.Password,
+            var result = await authService.LoginWithIdentifierAsync(request.Identifier, request.Password,
                 Request.Headers.UserAgent.ToString(), GetClientIpAddress());
 
             if (!result.Succeeded)
             {
-                logger.LogWarning("[AuthController] Login: Failed for user {Email}: {Error}",
-                    request.Email, result.Error ?? "Unknown error");
+                logger.LogWarning("[AuthController] Login: Failed for identifier {Identifier}: {Error}",
+                    request.Identifier, result.Error ?? "Unknown error");
                 // Return 401 Unauthorized for authentication failures (idempotent - same response on retry)
                 return Unauthorized(new { error = result.Error ?? "Invalid credentials" });
             }
 
             if (result.Payload == null)
             {
-                logger.LogError("[AuthController] Login: Succeeded but payload is null for user {Email}", request.Email);
+                logger.LogError("[AuthController] Login: Succeeded but payload is null for identifier {Identifier}", request.Identifier);
                 return BadRequest(new { error = "Failed to generate authentication token" });
             }
 
-            logger.LogInformation("[AuthController] Login: User {Email} logged in successfully",
-                request.Email);
+                logger.LogInformation("[AuthController] Login: Identifier {Identifier} logged in successfully",
+                request.Identifier);
 
             // Return 200 OK with new JWT (different on each retry - new SessionId)
             // This is safe because each JWT is independent and idempotent
@@ -247,23 +228,23 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
         }
         catch (InvalidOperationException ex)
         {
-            logger.LogError(ex, "[AuthController] Login: Service error for user {Email}", request?.Email);
+            logger.LogError(ex, "[AuthController] Login: Service error for identifier {Identifier}", request?.Identifier);
             return StatusCode(StatusCodes.Status500InternalServerError, 
                 new { error = "Login service is temporarily unavailable. Please try again later." });
         }
         catch (ArgumentException ex)
         {
-            logger.LogError(ex, "[AuthController] Login: Invalid argument for user {Email}", request?.Email);
+            logger.LogError(ex, "[AuthController] Login: Invalid argument for identifier {Identifier}", request?.Identifier);
             return BadRequest(new { error = "Invalid login credentials provided" });
         }
         catch (UnauthorizedAccessException ex)
         {
-            logger.LogWarning(ex, "[AuthController] Login: Unauthorized access attempt for user {Email}", request?.Email);
+            logger.LogWarning(ex, "[AuthController] Login: Unauthorized access attempt for identifier {Identifier}", request?.Identifier);
             return Unauthorized(new { error = "Invalid credentials" });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[AuthController] Login: Unexpected error during login for {Email}", request?.Email);
+            logger.LogError(ex, "[AuthController] Login: Unexpected error during login for {Identifier}", request?.Identifier);
             return StatusCode(StatusCodes.Status500InternalServerError, 
                 new { error = "An unexpected error occurred during login. Please try again later." });
         }
@@ -488,7 +469,7 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
         if (!string.IsNullOrWhiteSpace(forwardedFor))
             return forwardedFor.Split(',')[0].Trim();
 
-        return HttpContext.Connection.RemoteIpAddress?.ToString();
+        return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
 }
 

@@ -1,7 +1,5 @@
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Domain.Enums;
@@ -15,8 +13,6 @@ namespace ServiceMarketplace.Infrastructure.Services;
 /// </summary>
 public sealed class AdminKpiService(
     AppDbContext context,
-    UserManager<IdentityUser> userManager,
-    RoleManager<IdentityRole> roleManager,
     ILogger<AdminKpiService> logger) : IAdminKpiService
 {
     public async Task<AdminDashboardKpiDto> GetDashboardKpisAsync()
@@ -48,24 +44,13 @@ public sealed class AdminKpiService(
 
     private async Task<UserCountsByRoleDto> GetUserCountsAsync()
     {
-        // Get all users with their roles in a single query
-        var usersWithRoles = await userManager.Users
-            .Select(u => new
-            {
-                UserId = u.Id,
-                Roles = context.UserRoles
-                    .Where(ur => ur.UserId == u.Id)
-                    .Join(context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name)
-                    .ToList()
-            })
-            .ToListAsync();
-
+        var users = await context.Users.AsNoTracking().ToListAsync();
         var userCounts = new UserCountsByRoleDto
         {
-            TotalUsers = usersWithRoles.Count,
-            UsersCount = usersWithRoles.Count(u => u.Roles.Contains(RoleConstants.User)),
-            ServiceProvidersCount = usersWithRoles.Count(u => u.Roles.Contains(RoleConstants.ServiceProvider)),
-            AdminsCount = usersWithRoles.Count(u => u.Roles.Contains(RoleConstants.Admin))
+            TotalUsers = users.Count,
+            UsersCount = users.Count(u => u.UserType == Domain.Enums.UserType.Customer),
+            ServiceProvidersCount = users.Count(u => u.UserType == Domain.Enums.UserType.Provider),
+            AdminsCount = users.Count(u => u.UserType == Domain.Enums.UserType.Admin)
         };
 
         logger.LogInformation("[AdminKpiService] User counts: Total={Total}, Users={Users}, Providers={Providers}, Admins={Admins}",

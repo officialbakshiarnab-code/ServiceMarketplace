@@ -4,6 +4,9 @@ namespace ServiceMarketplace.Domain.Entities;
 
 public class ServiceRequest : BaseAuditableEntity
 {
+    /// <summary>
+    /// FK to Users(Id) - nvarchar(450)
+    /// </summary>
     public string CustomerId { get; set; } = null!;
 
     public string Title { get; set; } = null!;
