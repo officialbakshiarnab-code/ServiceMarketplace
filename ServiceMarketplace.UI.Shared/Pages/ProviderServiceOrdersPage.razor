@@ -1,0 +1,198 @@
+@page "/provider/service-orders"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ServiceOrdersApiClient OrdersClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Service Orders</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back to Dashboard</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (_orders.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No service orders yet.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var order in _orders)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between gap-3">
+                        <div>
+                            <h5 class="mb-1">@order.RequestTitle</h5>
+                            <p class="mb-1 small text-muted">@order.RequestCategory | $@order.AgreedAmount.ToString("0.00")</p>
+                            @if (order.ServicePackageId.HasValue)
+                            {
+                                <p class="mb-1 small text-info">Fixed-price package</p>
+                            }
+                            <p class="mb-1 small">Scheduled: @order.ScheduledStartAt.ToLocalTime().ToString("g")</p>
+                            @if (order.EstimatedDurationMinutes.HasValue)
+                            {
+                                <p class="mb-1 small text-muted">Estimated duration: @order.EstimatedDurationMinutes.Value minutes</p>
+                            }
+                            <p class="mb-1 small text-success">@order.ExactLocation</p>
+                            @if (!string.IsNullOrWhiteSpace(order.CancellationReason))
+                            {
+                                <p class="mb-0 small text-danger">@order.CancellationReason</p>
+                            }
+                            @if (order.PaymentStatus.HasValue)
+                            {
+                                <p class="mb-1 small">
+                                    <strong>Payment:</strong> @order.PaymentMethod, @order.PaymentStatus
+                                    @if (order.PaymentRecordedAt.HasValue)
+                                    {
+                                        <span class="text-muted">recorded @order.PaymentRecordedAt.Value.ToLocalTime().ToString("g")</span>
+                                    }
+                                </p>
+                            }
+                            else if (order.Status == ServiceOrderStatus.ProviderCompleted)
+                            {
+                                <p class="mb-1 small text-muted">Waiting for customer payment record.</p>
+                            }
+                            @if (order.ReviewRating.HasValue)
+                            {
+                                <p class="mb-1 small"><strong>Review:</strong> @order.ReviewRating / 5</p>
+                                @if (!string.IsNullOrWhiteSpace(order.ReviewFeedback))
+                                {
+                                    <p class="mb-1 small text-muted">@order.ReviewFeedback</p>
+                                }
+                                @if (order.ReviewIsHidden == true)
+                                {
+                                    <p class="mb-1 small text-warning">Review hidden by moderation.</p>
+                                }
+                            }
+                            <ServiceOrderMessageThread OrderId="order.Id" CurrentUserId="@order.ProviderId" />
+                        </div>
+                        <div class="text-end">
+                            <span class="badge @GetStatusClass(order.Status) mb-2">@order.Status</span>
+                            @if (order.Status == ServiceOrderStatus.PendingStart)
+                            {
+                                <div>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => StartAsync(order.Id)" disabled="@_busy">Start</button>
+                                </div>
+                            }
+                            @if (order.Status == ServiceOrderStatus.InProgress)
+                            {
+                                <div>
+                                    <button class="btn btn-sm btn-success" @onclick="() => ProviderCompleteAsync(order.Id)" disabled="@_busy">Mark Complete</button>
+                                </div>
+                            }
+                            @if (CanCancel(order.Status))
+                            {
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => CancelAsync(order.Id)" disabled="@_busy">Cancel</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<ServiceOrderDto> _orders = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _orders = await OrdersClient.GetProviderOrdersAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load service orders.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task StartAsync(Guid orderId)
+    {
+        await RunActionAsync(() => OrdersClient.StartAsync(orderId));
+    }
+
+    private async Task ProviderCompleteAsync(Guid orderId)
+    {
+        await RunActionAsync(() => OrdersClient.ProviderCompleteAsync(orderId));
+    }
+
+    private async Task CancelAsync(Guid orderId)
+    {
+        await RunActionAsync(() => OrdersClient.CancelAsync(orderId, "Cancelled by provider."));
+    }
+
+    private async Task RunActionAsync(Func<Task<ServiceOrderDto>> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to update service order.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static bool CanCancel(ServiceOrderStatus status) =>
+        status is ServiceOrderStatus.PendingStart or ServiceOrderStatus.InProgress or ServiceOrderStatus.ProviderCompleted;
+
+    private static string GetStatusClass(ServiceOrderStatus status) => status switch
+    {
+        ServiceOrderStatus.PendingStart => "bg-warning",
+        ServiceOrderStatus.InProgress => "bg-primary",
+        ServiceOrderStatus.ProviderCompleted => "bg-info",
+        ServiceOrderStatus.Completed => "bg-success",
+        ServiceOrderStatus.Cancelled => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private void GoBack() => Nav.NavigateTo("/provider/dashboard");
+}

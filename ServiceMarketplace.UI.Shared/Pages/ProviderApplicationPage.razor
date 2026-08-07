@@ -1,0 +1,214 @@
+@page "/account/provider-application"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ProviderApplicationsApiClient ProviderApplicationsClient
+@inject ServiceCatalogApiClient CatalogClient
+@inject NavigationManager Nav
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Provider Application</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading...</p>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <div class="alert alert-success" role="alert">@_message</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="mb-1">Status</h5>
+                        <p class="mb-0 text-muted">@(_application?.Status.ToString() ?? "Not started")</p>
+                    </div>
+                    @if (_application?.ReviewedAt != null)
+                    {
+                        <small class="text-muted">Reviewed @_application.ReviewedAt.Value.ToLocalTime().ToString("g")</small>
+                    }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_application?.ReviewNotes) || !string.IsNullOrWhiteSpace(_application?.RejectionReason))
+                {
+                    <hr />
+                    <p class="mb-1">@_application?.ReviewNotes</p>
+                    <p class="mb-0 text-danger">@_application?.RejectionReason</p>
+                }
+            </div>
+        </div>
+
+        <EditForm Model="_model" OnValidSubmit="SaveAsync">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Display name</label>
+                    <InputText class="form-control" @bind-Value="_model.DisplayName" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Business name</label>
+                    <InputText class="form-control" @bind-Value="_model.BusinessName" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Bio</label>
+                    <InputTextArea class="form-control" @bind-Value="_model.Bio" rows="3" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Primary category</label>
+                    <InputSelect class="form-select mb-2" @bind-Value="_model.ServiceCategoryId">
+                        <option value="">Select a category</option>
+                        @foreach (var category in _categories)
+                        {
+                            <option value="@category.Id">@category.Name</option>
+                        }
+                    </InputSelect>
+                    <InputText class="form-control" @bind-Value="_model.PrimaryCategory" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Skills</label>
+                    <InputText class="form-control" @bind-Value="_model.Skills" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">City</label>
+                    <InputText class="form-control" @bind-Value="_model.ServiceAreaCity" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">State</label>
+                    <InputText class="form-control" @bind-Value="_model.ServiceAreaState" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Zone</label>
+                    <InputSelect class="form-select mb-2" @bind-Value="_model.ServiceZoneId">
+                        <option value="">Select a zone</option>
+                        @foreach (var zone in _zones)
+                        {
+                            <option value="@zone.Id">@zone.DisplayName</option>
+                        }
+                    </InputSelect>
+                    <InputText class="form-control" @bind-Value="_model.ServiceAreaZone" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Hourly rate</label>
+                    <InputNumber class="form-control" @bind-Value="_model.HourlyRate" />
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_model.IdentityVerificationSubmitted" />
+                        <label class="form-check-label">Identity verification submitted</label>
+                    </div>
+                    <div class="form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_model.AddressVerificationSubmitted" />
+                        <label class="form-check-label">Address verification submitted</label>
+                    </div>
+                    <div class="form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_model.BackgroundCheckConsent" />
+                        <label class="form-check-label">Background-check consent</label>
+                    </div>
+                </div>
+                <div class="col-12 d-flex gap-2">
+                    <button class="btn btn-primary" type="submit" disabled="@_saving">Save</button>
+                    <button class="btn btn-success" type="button" @onclick="SubmitAsync" disabled="@_saving">Submit</button>
+                </div>
+            </div>
+        </EditForm>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private string? _message;
+    private string? _error;
+    private ProviderApplicationDto? _application;
+    private UpsertProviderApplicationDto _model = new();
+    private List<ServiceCategoryDto> _categories = [];
+    private List<ServiceZoneDto> _zones = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _categories = await CatalogClient.GetCategoriesAsync();
+            _zones = await CatalogClient.GetZonesAsync();
+            _application = await ProviderApplicationsClient.GetMineAsync();
+            if (_application != null)
+                LoadModel(_application);
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load provider application.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        await SaveCoreAsync(submit: false);
+    }
+
+    private async Task SubmitAsync()
+    {
+        await SaveCoreAsync(submit: true);
+    }
+
+    private async Task SaveCoreAsync(bool submit)
+    {
+        _saving = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            _application = await ProviderApplicationsClient.UpsertMineAsync(_model);
+            if (submit)
+                _application = await ProviderApplicationsClient.SubmitMineAsync();
+
+            LoadModel(_application);
+            _message = submit ? "Provider application submitted." : "Provider application saved.";
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to save provider application.");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void LoadModel(ProviderApplicationDto application)
+    {
+        _model = new UpsertProviderApplicationDto
+        {
+            DisplayName = application.DisplayName,
+            BusinessName = application.BusinessName,
+            Bio = application.Bio,
+            Skills = application.Skills,
+            PrimaryCategory = application.PrimaryCategory,
+            ServiceCategoryId = application.ServiceCategoryId,
+            ServiceAreaCity = application.ServiceAreaCity,
+            ServiceAreaState = application.ServiceAreaState,
+            ServiceAreaZone = application.ServiceAreaZone,
+            ServiceZoneId = application.ServiceZoneId,
+            HourlyRate = application.HourlyRate,
+            IsAvailable = application.IsAvailable,
+            IdentityVerificationSubmitted = application.IdentityVerificationSubmitted,
+            AddressVerificationSubmitted = application.AddressVerificationSubmitted,
+            BackgroundCheckConsent = application.BackgroundCheckConsent
+        };
+    }
+
+    private void GoBack() => Nav.NavigateTo("/user/dashboard");
+}

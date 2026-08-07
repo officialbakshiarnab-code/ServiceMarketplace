@@ -2,9 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Domain.Entities;
+using ServiceMarketplace.Domain.Enums;
 using ServiceMarketplace.Infrastructure.Data;
 using ServiceMarketplace.Infrastructure.Data.Extensions;
 using System.IdentityModel.Tokens.Jwt;
@@ -257,6 +259,12 @@ public sealed class TokenRefreshService(
         foreach (var role in roles)
             claims.Add(new Claim(ClaimTypes.Role, role));
 
+        foreach (var capability in await GetMarketplaceCapabilitiesAsync(user.Id, roles))
+            claims.Add(new Claim(MarketplaceCapabilityConstants.ClaimType, capability));
+
+        foreach (var permission in AdministrativePermissionConstants.FromRoles(roles))
+            claims.Add(new Claim(AdministrativePermissionConstants.ClaimType, permission));
+
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -268,6 +276,21 @@ public sealed class TokenRefreshService(
             signingCredentials: credentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private async Task<IReadOnlyList<string>> GetMarketplaceCapabilitiesAsync(Guid userId, IReadOnlyCollection<string> roles)
+    {
+        var capabilities = MarketplaceCapabilityConstants.FromRoles(roles)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var approvedSeller = await dbContext.SellerProfiles
+            .AsNoTracking()
+            .AnyAsync(s => s.UserId == userId && s.Status == SellerApplicationStatus.Approved);
+
+        if (approvedSeller)
+            capabilities.Add(MarketplaceCapabilityConstants.ProductSeller);
+
+        return capabilities.ToList();
     }
 
     private static string GenerateRandomToken()

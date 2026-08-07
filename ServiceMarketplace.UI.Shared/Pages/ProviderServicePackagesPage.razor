@@ -1,0 +1,261 @@
+@page "/provider/service-packages"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ServicePackagesApiClient PackagesClient
+@inject ServiceCatalogApiClient CatalogClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">My Packages</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back to Dashboard</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success" role="alert">@_success</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="mb-3">@(_editingPackageId.HasValue ? "Edit Package" : "Create Package")</h5>
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input class="form-control" @bind="_form.Title" maxlength="150" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="4" @bind="_form.Description" maxlength="1000"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" @bind="_form.ServiceCategoryId">
+                            @foreach (var category in _categories)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Zone</label>
+                        <select class="form-select" @bind="_zoneValue">
+                            <option value="">All approved zones</option>
+                            @foreach (var zone in _zones)
+                            {
+                                <option value="@zone.Id">@zone.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Price</label>
+                            <input class="form-control" type="number" step="0.01" min="1" @bind="_form.Price" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Duration minutes</label>
+                            <input class="form-control" type="number" min="1" max="10080" @bind="_durationValue" />
+                        </div>
+                    </div>
+                    <div class="form-check form-switch mt-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="activePackage" @bind="_form.IsActive" />
+                        <label class="form-check-label" for="activePackage">Active</label>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Save</button>
+                        @if (_editingPackageId.HasValue)
+                        {
+                            <button class="btn btn-outline-secondary" @onclick="ResetForm">Cancel Edit</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            @if (_loading)
+            {
+                <p class="text-muted mb-0">Loading...</p>
+            }
+            else if (_packages.Count == 0)
+            {
+                <div class="card">
+                    <div class="card-body">
+                        <p class="text-muted mb-0">No packages yet.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="list-group">
+                    @foreach (var package in _packages)
+                    {
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between gap-3">
+                                <div>
+                                    <h5 class="mb-1">@package.Title</h5>
+                                    <p class="mb-1 small text-muted">@package.ServiceCategoryName | @package.ServiceZoneName</p>
+                                    <p class="mb-1">@package.Description</p>
+                                    <p class="mb-0 small">$@package.Price.ToString("0.00") | @(package.EstimatedDurationMinutes?.ToString() ?? "Flexible") minutes</p>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge @(package.IsActive ? "bg-success" : "bg-secondary") mb-2">@(package.IsActive ? "Active" : "Inactive")</span>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(package)">Edit</button>
+                                    </div>
+                                    <div class="mt-2">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleAsync(package)" disabled="@_busy">
+                                            @(package.IsActive ? "Deactivate" : "Activate")
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _success;
+    private Guid? _editingPackageId;
+    private List<ServicePackageDto> _packages = [];
+    private List<ServiceCategoryDto> _categories = [];
+    private List<ServiceZoneDto> _zones = [];
+    private UpsertServicePackageDto _form = new();
+    private string _zoneValue = string.Empty;
+    private int? _durationValue = 60;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _categories = await CatalogClient.GetCategoriesAsync();
+            _zones = await CatalogClient.GetZonesAsync();
+            ResetForm();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load package workspace.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _packages = await PackagesClient.GetMineAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load service packages.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _success = null;
+
+        try
+        {
+            _form.ServiceZoneId = Guid.TryParse(_zoneValue, out var zoneId) ? zoneId : null;
+            _form.EstimatedDurationMinutes = _durationValue;
+
+            if (_editingPackageId.HasValue)
+            {
+                await PackagesClient.UpdateAsync(_editingPackageId.Value, _form);
+                _success = "Package updated.";
+            }
+            else
+            {
+                await PackagesClient.CreateAsync(_form);
+                _success = "Package created.";
+            }
+
+            ResetForm();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to save service package.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Edit(ServicePackageDto package)
+    {
+        _editingPackageId = package.Id;
+        _form = new UpsertServicePackageDto
+        {
+            ServiceCategoryId = package.ServiceCategoryId,
+            ServiceZoneId = package.ServiceZoneId,
+            Title = package.Title,
+            Description = package.Description,
+            Price = package.Price,
+            EstimatedDurationMinutes = package.EstimatedDurationMinutes,
+            IsActive = package.IsActive
+        };
+        _zoneValue = package.ServiceZoneId?.ToString() ?? string.Empty;
+        _durationValue = package.EstimatedDurationMinutes;
+    }
+
+    private async Task ToggleAsync(ServicePackageDto package)
+    {
+        Edit(package);
+        _form.IsActive = !package.IsActive;
+        await SaveAsync();
+    }
+
+    private void ResetForm()
+    {
+        _editingPackageId = null;
+        _form = new UpsertServicePackageDto
+        {
+            ServiceCategoryId = _categories.FirstOrDefault()?.Id ?? Guid.Empty,
+            ServiceZoneId = _zones.FirstOrDefault()?.Id,
+            Title = string.Empty,
+            Description = string.Empty,
+            Price = 500,
+            EstimatedDurationMinutes = 60,
+            IsActive = true
+        };
+        _zoneValue = _form.ServiceZoneId?.ToString() ?? string.Empty;
+        _durationValue = _form.EstimatedDurationMinutes;
+    }
+
+    private void GoBack() => Nav.NavigateTo("/provider/dashboard");
+}

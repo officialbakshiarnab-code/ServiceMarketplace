@@ -10,6 +10,22 @@ A full-stack service marketplace platform that connects customers seeking servic
 - Role-based API authorization policies
 - Auth/session audit logging
 - Provider age validation and optional government ID verification
+- Provider application/profile lifecycle with admin review
+- Service catalog categories, service zones, urgency, preferred schedule, and request requirements
+- Provider request matching by approved category/zone coverage
+- Bid comparison with provider profile context and estimated duration
+- Service order/job lifecycle after bid acceptance
+- Order-scoped customer/provider messaging after bid acceptance
+- Persistent notification inbox for bid, order lifecycle, and message events
+- Offline/direct payment recording before customer completion
+- Transaction-backed customer reviews with provider rating aggregates
+- Append-only service order transaction audit history
+- Admin review moderation API
+- Commercial UX polish for payment-first completion, provider transaction visibility, bid comparison ratings, and review moderation
+- Fixed-price service packages with provider package management and customer booking
+- Seller onboarding and admin approval for product-selling capability
+- Product catalog categories and seller-managed product listings for buyers to browse
+- Used product condition disclosure and category-specific inspection guidance
 - API rate limiting, security headers, and health checks
 
 ## Architecture
@@ -44,19 +60,19 @@ A full-stack service marketplace platform that connects customers seeking servic
 
 ### Configuration
 
-`ServiceMarketplace.API/appsettings.json`:
+`ServiceMarketplace.API/appsettings.json` intentionally keeps secrets and local connection strings out of source control. Configure them with user secrets for local development:
 
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=service_marketplace;Username=servicemarketplace;Password=servicemarketplace_dev"
-  },
-  "Jwt": {
-    "Key": "your-256-bit-secret-key-here",
-    "Issuer": "ServiceMarketplace",
-    "Audience": "ServiceMarketplaceUsers"
-  }
-}
+```bash
+dotnet user-secrets init --project ServiceMarketplace.API
+dotnet user-secrets set "Jwt:Key" "replace-with-a-strong-32-byte-minimum-secret" --project ServiceMarketplace.API
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=service_marketplace;Username=servicemarketplace;Password=<local-dev-password>" --project ServiceMarketplace.API
+```
+
+Or set equivalent environment variables in hosted environments:
+
+```bash
+Jwt__Key=replace-with-a-strong-32-byte-minimum-secret
+ConnectionStrings__DefaultConnection=Host=localhost;Port=5432;Database=service_marketplace;Username=servicemarketplace;Password=<local-dev-password>
 ```
 
 ### Run Locally
@@ -66,7 +82,7 @@ dotnet restore
 
 docker run --name service-marketplace-postgres \
   -e POSTGRES_USER=servicemarketplace \
-  -e POSTGRES_PASSWORD=servicemarketplace_dev \
+  -e POSTGRES_PASSWORD=<local-dev-password> \
   -e POSTGRES_DB=service_marketplace \
   -p 5432:5432 \
   -d postgres:16
@@ -87,6 +103,32 @@ Use `DATABASE_SETUP.md` for local PostgreSQL setup and `full_migrations.sql` for
 - Refresh tokens expire after 7 days and rotate on refresh.
 - Refresh tokens are stored hashed in the database.
 - Session IDs are tracked through JWT `jti` claims and audit logs.
+- Public registration allows only `User`, `ServiceProvider`, and `Both`; `Admin` accounts must be provisioned outside public registration.
+- JWTs include marketplace capability claims such as `service.customer` and `service.provider`.
+- Administrative access uses separate administrative permission claims such as `platform.admin`.
+- Provider browsing and bidding require an active, KYC-approved provider account with provider capability.
+- Provider accounts can also use service-customer workflows through the same account.
+- Provider applications move through Draft, Submitted, Under Review, Approved, More Information Required, Rejected, Suspended, and Revoked states.
+- Service request creation supports normalized service categories and service zones while retaining legacy text category/location compatibility.
+- Provider-facing request listings hide exact customer location, coordinates, and customer IDs before bid acceptance.
+- Accepted providers can view exact job location and coordinates for the accepted request.
+- Accepted bids create service orders with Pending Start, In Progress, Provider Completed, Completed, and Cancelled states.
+- Accepted order participants can message each other from their order pages.
+- Notifications are created for accepted bids, order creation/start/completion/cancellation, and received order messages.
+- Customer completion requires a recorded non-platform payment method for the agreed amount.
+- Completed orders can receive one customer review, and provider average rating/review count are updated.
+- Service order creation, lifecycle, payment, completion, review, and moderation events are retained in order audit history.
+- Admins can hide/show customer reviews with moderation notes.
+- Customer order screens guide payment recording before completion.
+- Provider order screens show payment and review summaries.
+- Bid comparison screens show provider rating, review count, rate, duration, rank, and bid message.
+- Approved providers can publish fixed-price service packages for their approved category/zone.
+- Customers can browse and book active packages, creating service orders without a bid.
+- Users can apply to become sellers; admins review seller applications.
+- Approved sellers receive `product.seller` capability and can manage product listings.
+- Registered buyers can browse active product listings by category and Kolkata zone.
+- Sellers can mark products as new or used; used products require condition notes and a seller inspection checklist.
+- Product categories return inspection prompts so buyers know what to verify before pickup.
 
 ## Project Structure
 
@@ -110,10 +152,11 @@ dotnet test ServiceMarketplace.sln --no-build
 ```
 
 Integration tests cover registration, login, token refresh, authorization, bids, and request workflows.
+They also cover provider application submission/review, capability claims, approval gates, catalog-backed request creation, provider matching, bid comparison, accepted-provider address disclosure, service order lifecycle flows, order messaging, notification inbox behavior, payment recording, completion hardening, transaction-backed reviews, review moderation, fixed-price service package booking, seller approval, product listing management, buyer product browsing, used-product condition disclosure, inspection guidance, and the MVP Gate A full service transaction smoke path.
 
 ## Production Notes
 
-- Set `Jwt:Key` to a strong production secret.
+- Set `Jwt:Key` to a strong production secret with at least 32 bytes.
 - Update CORS origins to production domains.
 - Enable HTTPS and HSTS in production.
 - Configure PostgreSQL backups and monitoring.

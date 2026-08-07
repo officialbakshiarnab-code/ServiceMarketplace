@@ -1,16 +1,16 @@
 using Microsoft.AspNetCore.Components;
+using ServiceMarketplace.Application.Constants;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
 
 /// <summary>
 /// Role-based navigation helper for post-login redirects.
-/// Reads role claims from JWT and navigates to appropriate dashboard.
+/// Reads capability claims from JWT and navigates to the appropriate dashboard.
 /// 
 /// Navigation Logic:
-/// - If user has BOTH User and ServiceProvider roles ? /provider/dashboard (default to Provider)
-/// - If user has ONLY ServiceProvider role ? /provider/dashboard
-/// - If user has ONLY User role ? /user/dashboard
-/// - If user has no valid roles ? /user/dashboard (safe default)
+/// - If user has service.provider capability, default to provider dashboard.
+/// - If user has service.customer capability, default to user dashboard.
+/// - If user has no recognized capability, default to user dashboard.
 /// </summary>
 public sealed class AuthRedirector
 {
@@ -35,13 +35,11 @@ public sealed class AuthRedirector
     {
         try
         {
-            // Retrieve all roles assigned to the user
-            var roles = await _authState.GetAllRolesAsync();
+            var capabilities = await _authState.GetAllMarketplaceCapabilitiesAsync();
 
-            Console.WriteLine($"[AuthRedirector] User roles: {string.Join(", ", roles)}");
+            Console.WriteLine($"[AuthRedirector] User capabilities: {string.Join(", ", capabilities)}");
 
-            // Determine which dashboard to navigate to based on roles
-            var navigateTarget = DetermineDashboard(roles);
+            var navigateTarget = DetermineDashboard(capabilities);
 
             Console.WriteLine($"[AuthRedirector] Redirecting to: {navigateTarget}");
 
@@ -56,57 +54,32 @@ public sealed class AuthRedirector
     }
 
     /// <summary>
-    /// Determines which dashboard to navigate to based on user roles.
-    /// 
-    /// Priority (to support UserType.Both - dual-role users):
-    /// 1. If user has Both role ? /provider/dashboard (dual-role users default to Provider)
-    /// 2. If user has ServiceProvider role (without Both) ? /provider/dashboard
-    /// 3. If user has only User role ? /user/dashboard
-    /// 4. If user has no roles or invalid roles ? /user/dashboard (safe default)
-    /// 
-    /// Rationale:
-    /// Users with UserType.Both have BOTH "User" and "ServiceProvider" role claims in JWT.
-    /// We default to Provider dashboard because:
-    /// - Provider features are more complex and require explicit access
-    /// - Users can always navigate to User dashboard if needed
-    /// - Provider dashboard is the "power user" experience
+    /// Determines which dashboard to navigate to based on marketplace capabilities.
     /// </summary>
-    /// <param name="roles">List of all roles assigned to the user</param>
+    /// <param name="capabilities">List of all marketplace capabilities assigned to the user</param>
     /// <returns>The dashboard path to navigate to</returns>
-    private static string DetermineDashboard(IList<string> roles)
+    private static string DetermineDashboard(IList<string> capabilities)
     {
-        // Normalize and validate roles
-        var validRoles = roles
+        var validCapabilities = capabilities
             .Where(r => !string.IsNullOrWhiteSpace(r))
             .Select(r => r.Trim())
             .ToList();
 
-        Console.WriteLine($"[AuthRedirector] Valid roles after normalization: {string.Join(", ", validRoles)}");
+        Console.WriteLine($"[AuthRedirector] Valid capabilities after normalization: {string.Join(", ", validCapabilities)}");
 
-        // Check if user has BOTH role (dual-role users)
-        if (validRoles.Any(r => string.Equals(r, "Both", StringComparison.Ordinal)))
+        if (validCapabilities.Any(c => string.Equals(c, MarketplaceCapabilityConstants.ServiceProvider, StringComparison.Ordinal)))
         {
-            Console.WriteLine("[AuthRedirector] User has Both role, navigating to provider dashboard (default for dual-role)");
+            Console.WriteLine("[AuthRedirector] User has service.provider capability, navigating to provider dashboard");
             return "/provider/dashboard";
         }
 
-        // Check if user has ServiceProvider role
-        // If yes, navigate to provider dashboard (whether or not they also have User role)
-        if (validRoles.Any(r => string.Equals(r, RoleNames.Provider, StringComparison.Ordinal)))
+        if (validCapabilities.Any(c => string.Equals(c, MarketplaceCapabilityConstants.ServiceCustomer, StringComparison.Ordinal)))
         {
-            Console.WriteLine("[AuthRedirector] User has ServiceProvider role, navigating to provider dashboard");
-            return "/provider/dashboard";
-        }
-
-        // Check if user has User role (and no ServiceProvider or Both role)
-        if (validRoles.Any(r => string.Equals(r, RoleNames.User, StringComparison.Ordinal)))
-        {
-            Console.WriteLine("[AuthRedirector] User has User role only, navigating to user dashboard");
+            Console.WriteLine("[AuthRedirector] User has service.customer capability, navigating to user dashboard");
             return "/user/dashboard";
         }
 
-        // No valid roles or empty role list - safe default
-        Console.WriteLine("[AuthRedirector] User has no valid roles, using safe default: user dashboard");
+        Console.WriteLine("[AuthRedirector] User has no recognized marketplace capability, using safe default: user dashboard");
         return "/user/dashboard";
     }
 

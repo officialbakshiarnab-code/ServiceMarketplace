@@ -341,6 +341,12 @@ ASALocalRun/
 # MSBuild Binary and Structured Log
 *.binlog
 
+# Local/manual verification artifacts
+*_VERIFICATION.sql
+*_VERIFICATION.ps1
+test-*.ps1
+DOCUMENTATION_CLEANUP_SUMMARY.txt
+
 # NVidia Nsight GPU debugger configuration file
 *.nvuser
 

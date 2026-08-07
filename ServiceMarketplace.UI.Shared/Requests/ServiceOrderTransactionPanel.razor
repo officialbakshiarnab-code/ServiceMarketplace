@@ -1,0 +1,186 @@
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@inject ServiceOrderPaymentsApiClient PaymentsClient
+@inject ServiceOrderReviewsApiClient ReviewsClient
+
+<div class="mt-3 border-top pt-3">
+    @if (_loading)
+    {
+        <p class="text-muted small mb-0">Loading transaction...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger py-2 small" role="alert">@_error</div>
+    }
+    else
+    {
+        @if (_payment != null)
+        {
+            <p class="mb-1 small"><strong>Payment:</strong> @_payment.Method, @_payment.Status, $@_payment.Amount.ToString("0.00")</p>
+            @if (!string.IsNullOrWhiteSpace(_payment.ReferenceNumber))
+            {
+                <p class="mb-1 small text-muted">@_payment.ReferenceNumber</p>
+            }
+        }
+
+        @if (Order.Status == ServiceOrderStatus.ProviderCompleted && _payment == null)
+        {
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label small mb-1">Payment</label>
+                    <select class="form-select form-select-sm" @bind="_method" disabled="@_busy">
+                        <option value="@PaymentMethod.DirectUpi">Direct UPI</option>
+                        <option value="@PaymentMethod.Cash">Cash</option>
+                        <option value="@PaymentMethod.OtherOffline">Other Offline</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-1">Amount</label>
+                    <input class="form-control form-control-sm" type="number" step="0.01" @bind="_amount" disabled="@_busy" />
+                </div>
+                <div class="col-12 col-md-5">
+                    <label class="form-label small mb-1">Reference</label>
+                    <input class="form-control form-control-sm" @bind="_referenceNumber" disabled="@_busy" />
+                </div>
+                <div class="col-12">
+                    <textarea class="form-control form-control-sm" rows="2" placeholder="Notes" @bind="_notes" disabled="@_busy"></textarea>
+                </div>
+                <div class="col-12">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="RecordPaymentAsync" disabled="@_busy">Record Payment</button>
+                </div>
+            </div>
+        }
+
+        @if (Order.Status == ServiceOrderStatus.Completed)
+        {
+            @if (_review == null)
+            {
+                <div class="row g-2 align-items-end mt-2">
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small mb-1">Rating</label>
+                        <select class="form-select form-select-sm" @bind="_rating" disabled="@_busy">
+                            <option value="5">5</option>
+                            <option value="4">4</option>
+                            <option value="3">3</option>
+                            <option value="2">2</option>
+                            <option value="1">1</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-9">
+                        <label class="form-label small mb-1">Feedback</label>
+                        <input class="form-control form-control-sm" @bind="_feedback" disabled="@_busy" />
+                    </div>
+                    <div class="col-12">
+                        <button class="btn btn-sm btn-outline-success" @onclick="CreateReviewAsync" disabled="@_busy">Submit Review</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <p class="mb-1 small"><strong>Review:</strong> @_review.Rating / 5</p>
+                @if (!string.IsNullOrWhiteSpace(_review.Feedback))
+                {
+                    <p class="mb-0 small text-muted">@_review.Feedback</p>
+                }
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ServiceOrderDto Order { get; set; } = new();
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private Guid _loadedOrderId;
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+    private ServiceOrderPaymentDto? _payment;
+    private ServiceOrderReviewDto? _review;
+    private PaymentMethod _method = PaymentMethod.DirectUpi;
+    private decimal _amount;
+    private string? _referenceNumber;
+    private string? _notes;
+    private int _rating = 5;
+    private string? _feedback;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedOrderId == Order.Id)
+            return;
+
+        _loadedOrderId = Order.Id;
+        _amount = Order.AgreedAmount;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _payment = await PaymentsClient.GetAsync(Order.Id);
+            _review = await ReviewsClient.GetForOrderAsync(Order.Id);
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load transaction details.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RecordPaymentAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _payment = await PaymentsClient.RecordAsync(Order.Id, new RecordServiceOrderPaymentDto
+            {
+                Method = _method,
+                Amount = _amount,
+                ReferenceNumber = _referenceNumber,
+                Notes = _notes
+            });
+            if (OnChanged.HasDelegate)
+                await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to record payment.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateReviewAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _review = await ReviewsClient.CreateAsync(Order.Id, new CreateServiceOrderReviewDto
+            {
+                Rating = _rating,
+                Feedback = _feedback
+            });
+            if (OnChanged.HasDelegate)
+                await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to submit review.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

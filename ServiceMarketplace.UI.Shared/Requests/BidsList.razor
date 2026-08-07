@@ -1,4 +1,4 @@
-@using ServiceMarketplace.Application.DTOs
+ï»¿@using ServiceMarketplace.Application.DTOs
 @inject BidsApiClient BidsClient
 
 <div class="card mt-3">
@@ -36,12 +36,37 @@
                 @foreach (var b in _items)
                 {
                     <div class="list-group-item">
-                        <div class="d-flex w-100 justify-content-between">
+                        <div class="d-flex w-100 justify-content-between gap-3">
                             <div>
-                                <strong>@b.Amount.ToString("0.00")</strong>
-                                <span class="text-muted"> • @b.ProposedDateTime.ToString("g")</span>
+                                <div>
+                                    <span class="badge bg-secondary me-2">#@b.ComparisonRank</span>
+                                    <strong>@b.ProviderDisplayName</strong>
+                                    @if (!string.IsNullOrWhiteSpace(b.ProviderBusinessName))
+                                    {
+                                        <span class="text-muted"> | @b.ProviderBusinessName</span>
+                                    }
+                                </div>
+                                <div class="small text-muted mt-1">
+                                    Rating: @FormatRating(b.ProviderAverageRating, b.ProviderReviewCount)
+                                    @if (b.ProviderHourlyRate.HasValue)
+                                    {
+                                        <span> | Rate: $@b.ProviderHourlyRate.Value.ToString("0.00")/hr</span>
+                                    }
+                                    @if (b.EstimatedDurationMinutes.HasValue)
+                                    {
+                                        <span> | Duration: @b.EstimatedDurationMinutes.Value min</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(b.Message))
+                                {
+                                    <div class="small mt-1">@b.Message</div>
+                                }
                             </div>
-                            <small class="text-muted">@b.Status</small>
+                            <div class="text-end">
+                                <strong>$@b.Amount.ToString("0.00")</strong>
+                                <div class="small text-muted">@b.ProposedDateTime.ToLocalTime().ToString("g")</div>
+                                <span class="badge bg-light text-dark">@b.Status</span>
+                            </div>
                         </div>
                     </div>
                 }
@@ -81,5 +106,12 @@
         {
             _loading = false;
         }
+    }
+
+    private static string FormatRating(decimal rating, int count)
+    {
+        return count == 0
+            ? "New provider"
+            : $"{rating:0.0} / 5 ({count})";
     }
 }

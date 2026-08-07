@@ -1,0 +1,129 @@
+@page "/admin/seller-applications"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject SellerApplicationsApiClient SellerApplicationsClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Seller Applications</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back to Dashboard</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (_applications.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No seller applications yet.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var application in _applications)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between gap-3">
+                        <div>
+                            <h5 class="mb-1">@application.StoreName</h5>
+                            <p class="mb-1 small text-muted">@application.BusinessName | @application.ServiceZoneName</p>
+                            <p class="mb-1">@application.Description</p>
+                            <p class="mb-0 small">@application.PickupAddress, @application.City, @application.State</p>
+                            @if (!string.IsNullOrWhiteSpace(application.ReviewNotes) || !string.IsNullOrWhiteSpace(application.RejectionReason))
+                            {
+                                <p class="mb-0 small text-muted">@application.ReviewNotes @application.RejectionReason</p>
+                            }
+                        </div>
+                        <div class="text-end" style="min-width: 210px;">
+                            <span class="badge bg-secondary mb-2">@application.Status</span>
+                            <textarea class="form-control form-control-sm mb-2" rows="2" @bind="_notes[application.Id]" placeholder="Review notes"></textarea>
+                            <div class="d-flex gap-2 justify-content-end">
+                                <button class="btn btn-sm btn-success" @onclick="() => ReviewAsync(application.Id, SellerApplicationStatus.Approved)" disabled="@_busy">Approve</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ReviewAsync(application.Id, SellerApplicationStatus.Rejected)" disabled="@_busy">Reject</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<SellerApplicationDto> _applications = [];
+    private readonly Dictionary<Guid, string?> _notes = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() || !await AuthState.HasRoleAsync(RoleNames.Admin))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _applications = await SellerApplicationsClient.GetForAdminAsync();
+            foreach (var application in _applications)
+                _notes.TryAdd(application.Id, application.ReviewNotes);
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load seller applications.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReviewAsync(Guid applicationId, SellerApplicationStatus status)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _notes.TryGetValue(applicationId, out var notes);
+            await SellerApplicationsClient.ReviewAsync(applicationId, new ReviewSellerApplicationDto
+            {
+                Status = status,
+                ReviewNotes = notes,
+                RejectionReason = status == SellerApplicationStatus.Rejected ? notes : null
+            });
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to review seller application.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void GoBack() => Nav.NavigateTo("/admin/dashboard");
+}

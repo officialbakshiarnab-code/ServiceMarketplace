@@ -27,7 +27,7 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         return payload.RequestId;
     }
 
-    public async Task<List<ServiceRequestDto>> NearbyAsync(NearbySearchDto dto, CancellationToken cancellationToken = default)
+    public async Task<List<ProviderServiceRequestDto>> NearbyAsync(NearbySearchDto dto, CancellationToken cancellationToken = default)
     {
         await AttachBearerAsync(cancellationToken);
 
@@ -35,10 +35,10 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load requests.");
 
-        return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
+        return await response.Content.ReadFromJsonAsync<List<ProviderServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
-    public async Task<List<ServiceRequestDto>> OpenAsync(CancellationToken cancellationToken = default)
+    public async Task<List<ProviderServiceRequestDto>> OpenAsync(CancellationToken cancellationToken = default)
     {
         await AttachBearerAsync(cancellationToken);
 
@@ -46,7 +46,7 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load open requests.");
 
-        return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
+        return await response.Content.ReadFromJsonAsync<List<ProviderServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
     public async Task<List<ServiceRequestDto>> GetMyRequestsAsync(CancellationToken cancellationToken = default)
@@ -60,7 +60,7 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
-    public async Task<List<ServiceRequestDto>> GetAvailableRequestsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<ProviderServiceRequestDto>> GetAvailableRequestsAsync(CancellationToken cancellationToken = default)
     {
         await AttachBearerAsync(cancellationToken);
 
@@ -68,7 +68,7 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load available requests.");
 
-        return await response.Content.ReadFromJsonAsync<List<ServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
+        return await response.Content.ReadFromJsonAsync<List<ProviderServiceRequestDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
     public async Task<ServiceRequestDto> GetByIdAsync(Guid requestId, CancellationToken cancellationToken = default)
@@ -83,7 +83,7 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         return request ?? throw new InvalidOperationException("Empty response from server.");
     }
 
-    public async Task<ServiceRequestDto> GetRequestDetailsAsync(Guid requestId, CancellationToken cancellationToken = default)
+    public async Task<ProviderServiceRequestDto> GetRequestDetailsAsync(Guid requestId, CancellationToken cancellationToken = default)
     {
         await AttachBearerAsync(cancellationToken);
 
@@ -91,7 +91,7 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(await TryReadErrorAsync(response) ?? "Failed to load request details.");
 
-        var request = await response.Content.ReadFromJsonAsync<ServiceRequestDto>(cancellationToken: cancellationToken);
+        var request = await response.Content.ReadFromJsonAsync<ProviderServiceRequestDto>(cancellationToken: cancellationToken);
         return request ?? throw new InvalidOperationException("Empty response from server.");
     }
 
@@ -120,12 +120,13 @@ public sealed class RequestsApiClient(HttpClient httpClient, ITokenStorage token
         return stats ?? throw new InvalidOperationException("Empty response from server.");
     }
 
-    private async Task AttachBearerAsync(CancellationToken cancellationToken)
+    private Task AttachBearerAsync(CancellationToken cancellationToken)
     {
         _ = cancellationToken;
         // AuthorizingHttpClientHandler automatically attaches token
         // This method is kept for backwards compatibility
         // No manual attachment needed here
+        return Task.CompletedTask;
     }
 
     private static async Task<string?> TryReadErrorAsync(HttpResponseMessage response)

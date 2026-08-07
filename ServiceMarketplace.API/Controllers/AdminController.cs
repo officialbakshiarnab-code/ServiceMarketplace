@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using ServiceMarketplace.Application.DTOs;
+using ServiceMarketplace.Application.Interfaces;
+using ServiceMarketplace.Domain.Enums;
 using ServiceMarketplace.Infrastructure.Data;
 using System.Security.Claims;
 
@@ -12,6 +15,7 @@ namespace ServiceMarketplace.API.Controllers;
 [EnableRateLimiting("admin")]
 public class AdminController(
     AppDbContext dbContext,
+    IProviderApplicationService providerApplicationService,
     ILogger<AdminController> logger) : ControllerBase
 {
     [HttpPut("approve-kyc/{userId}")]
@@ -50,6 +54,19 @@ public class AdminController(
         var adminId = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(adminId))
             return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Unable to determine admin user id." });
+
+        var providerProfile = await dbContext.ServiceProviderProfiles.FirstOrDefaultAsync(p => p.UserId == userGuid);
+        if (providerProfile != null)
+        {
+            await providerApplicationService.ReviewAsync(providerProfile.Id, adminId, new ReviewProviderApplicationDto
+            {
+                Status = ProviderApplicationStatus.Approved,
+                ReviewNotes = "Approved through legacy KYC approval endpoint."
+            });
+
+            logger.LogInformation("[AdminController] Provider application approved for user {UserId} by admin {AdminId}", userId, adminId);
+            return Ok(new { message = "KYC approved successfully." });
+        }
 
         user.IsKycApproved = true;
         user.KycApprovedByUserId = adminId;

@@ -1,4 +1,5 @@
 @page "/provider/dashboard"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.UI.Shared.Requests
 @using ServiceMarketplace.UI.Shared.Auth
 @inject NavigationManager Nav
@@ -7,12 +8,12 @@
 
 @code {
     private bool _isAuthenticated;
-    private string? _role;
+    private bool _hasServiceProviderCapability;
 
     protected override async Task OnInitializedAsync()
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
+        _hasServiceProviderCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider);
 
         if (!_isAuthenticated)
         {
@@ -20,7 +21,7 @@
             return;
         }
 
-        if (!string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        if (!_hasServiceProviderCapability)
         {
             await Redirector.RedirectToDashboardAsync();
         }
@@ -35,6 +36,11 @@
     {
         Nav.NavigateTo("/provider/my-bids");
     }
+
+    private void GoToServiceOrders()
+    {
+        Nav.NavigateTo("/provider/service-orders");
+    }
 }
 
 <div class="container py-4">
@@ -43,7 +49,7 @@
         <LogoutButton />
     </div>
 
-    <AuthorizeView Roles="@RoleNames.Provider">
+    <AuthorizeView>
         <Authorized>
             <div class="alert alert-info mb-3" role="alert">
                 <strong>Browse & Bid on Service Requests</strong>
@@ -65,6 +71,10 @@
                                 <button class="btn btn-lg btn-outline-primary" type="button" @onclick="GoToMyBids">
                                     <i class="bi bi-bookmark-check me-2"></i>
                                     View My Bids
+                                </button>
+                                <button class="btn btn-lg btn-outline-success" type="button" @onclick="GoToServiceOrders">
+                                    <i class="bi bi-clipboard-check me-2"></i>
+                                    View Service Orders
                                 </button>
                             </div>
                         </div>

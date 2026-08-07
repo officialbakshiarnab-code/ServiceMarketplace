@@ -84,11 +84,11 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 return BadRequest(new { error = "Last name is required" });
             }
 
-            if (!RoleConstants.IsValidRole(request.Role))
+            if (!RoleConstants.IsPublicRegistrationRole(request.Role))
             {
-                logger.LogWarning("[AuthController] Register: Invalid role provided: {Role}. Valid roles: {ValidRoles}",
-                    request.Role, string.Join(", ", RoleConstants.AllRoles));
-                return BadRequest(new { error = $"Invalid role. Valid roles are: {string.Join(", ", RoleConstants.AllRoles)}" });
+                logger.LogWarning("[AuthController] Register: Role is not allowed for public registration: {Role}. Public roles: {ValidRoles}",
+                    request.Role, string.Join(", ", RoleConstants.PublicRegistrationRoles));
+                return BadRequest(new { error = $"Invalid role. Valid roles are: {string.Join(", ", RoleConstants.PublicRegistrationRoles)}" });
             }
 
             var ageValidation = AgeValidator.ValidateAge(request.DateOfBirth, request.Role);

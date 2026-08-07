@@ -77,7 +77,18 @@ builder.Services.AddScoped<TokenRefreshHttpClient>();
 // Configure API clients
 builder.Services.AddScoped<AuthApiClient>();
 builder.Services.AddScoped<RequestsApiClient>();
+builder.Services.AddScoped<ServiceCatalogApiClient>();
+builder.Services.AddScoped<ProductCatalogApiClient>();
+builder.Services.AddScoped<ServiceOrdersApiClient>();
+builder.Services.AddScoped<ServiceOrderMessagesApiClient>();
+builder.Services.AddScoped<ServiceOrderPaymentsApiClient>();
+builder.Services.AddScoped<ServiceOrderReviewsApiClient>();
+builder.Services.AddScoped<ServicePackagesApiClient>();
+builder.Services.AddScoped<NotificationsApiClient>();
 builder.Services.AddScoped<BidsApiClient>();
+builder.Services.AddScoped<ProviderApplicationsApiClient>();
+builder.Services.AddScoped<SellerApplicationsApiClient>();
+builder.Services.AddScoped<ProductListingsApiClient>();
 builder.Services.AddScoped<AuditLogsApiClient>();
 builder.Services.AddScoped<AdminKpiApiClient>();
 

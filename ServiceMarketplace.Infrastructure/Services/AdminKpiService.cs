@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Domain.Enums;
 using ServiceMarketplace.Infrastructure.Data;
+using ServiceMarketplace.Infrastructure.Data.Extensions;
 
 namespace ServiceMarketplace.Infrastructure.Services;
 
@@ -44,19 +46,59 @@ public sealed class AdminKpiService(
 
     private async Task<UserCountsByRoleDto> GetUserCountsAsync()
     {
-        var users = await context.Users.AsNoTracking().ToListAsync();
+        var users = await context.Users
+            .AsNoTracking()
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
+            .ToListAsync();
+
         var userCounts = new UserCountsByRoleDto
         {
             TotalUsers = users.Count,
-            UsersCount = users.Count(u => u.UserType == Domain.Enums.UserType.Customer),
-            ServiceProvidersCount = users.Count(u => u.UserType == Domain.Enums.UserType.Provider),
-            AdminsCount = users.Count(u => u.UserType == Domain.Enums.UserType.Admin)
+            UsersCount = users.Count(HasServiceCustomerCapability),
+            ServiceProvidersCount = users.Count(HasServiceProviderCapability),
+            AdminsCount = users.Count(HasPlatformAdminPermission)
         };
 
         logger.LogInformation("[AdminKpiService] User counts: Total={Total}, Users={Users}, Providers={Providers}, Admins={Admins}",
             userCounts.TotalUsers, userCounts.UsersCount, userCounts.ServiceProvidersCount, userCounts.AdminsCount);
 
         return userCounts;
+    }
+
+    private static bool HasServiceCustomerCapability(Domain.Entities.User user)
+    {
+        return MarketplaceCapabilityConstants
+            .FromRoles(GetRoleNames(user))
+            .Contains(MarketplaceCapabilityConstants.ServiceCustomer);
+    }
+
+    private static bool HasServiceProviderCapability(Domain.Entities.User user)
+    {
+        return MarketplaceCapabilityConstants
+            .FromRoles(GetRoleNames(user))
+            .Contains(MarketplaceCapabilityConstants.ServiceProvider);
+    }
+
+    private static bool HasPlatformAdminPermission(Domain.Entities.User user)
+    {
+        return AdministrativePermissionConstants
+            .FromRoles(GetRoleNames(user))
+            .Contains(AdministrativePermissionConstants.PlatformAdmin);
+    }
+
+    private static IEnumerable<string> GetRoleNames(Domain.Entities.User user)
+    {
+        var roleNames = user.UserRoles
+            .Select(ur => ur.Role.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToList();
+
+        if (roleNames.Count > 0)
+            return roleNames;
+
+        return new[] { user.UserType.GetPrimaryRole() };
     }
 
     private async Task<ServiceRequestStatsDto> GetRequestStatsAsync()

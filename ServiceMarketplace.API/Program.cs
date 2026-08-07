@@ -40,6 +40,19 @@ var securitySettings = builder.Configuration
 
 builder.Logging.AddConsole();
 
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey))
+    throw new InvalidOperationException("JWT signing key is not configured. Set Jwt:Key through user secrets or environment variables.");
+
+if (!builder.Environment.IsEnvironment("Testing") &&
+    jwtKey.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("JWT signing key is a placeholder. Configure a real secret outside source control.");
+}
+
+if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+    throw new InvalidOperationException("JWT signing key must be at least 32 bytes.");
+
 // ==============================
 // DATABASE
 // ==============================
@@ -74,7 +87,7 @@ builder.Services.AddAuthentication(options =>
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
+            Encoding.UTF8.GetBytes(jwtKey)
         )
     };
 
@@ -135,22 +148,29 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("UserOnly", policy =>
-        policy.RequireClaim("UserType", "1", "3"));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer));
 
     options.AddPolicy("ProviderOnly", policy =>
-        policy.RequireClaim("UserType", "2", "3"));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceProvider));
 
     options.AddPolicy("UserOrBoth", policy =>
-        policy.RequireClaim("UserType", "1", "3"));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer));
 
     options.AddPolicy("ProviderOrBoth", policy =>
-        policy.RequireClaim("UserType", "2", "3"));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceProvider));
 
     options.AddPolicy("BothRoleOnly", policy =>
-        policy.RequireClaim("UserType", "3"));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer)
+            .RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceProvider));
+
+    options.AddPolicy("ProductBuyerOnly", policy =>
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ProductBuyer));
+
+    options.AddPolicy("ProductSellerOnly", policy =>
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ProductSeller));
 
     options.AddPolicy("AdminOnly", policy =>
-        policy.RequireClaim("UserType", "3"));
+        policy.RequireClaim(AdministrativePermissionConstants.ClaimType, AdministrativePermissionConstants.PlatformAdmin));
 });
 
 // ==============================
@@ -332,7 +352,19 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
 // ==============================
 builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
 builder.Services.AddScoped<IBidService, BidService>();
-builder.Services.AddScoped<INotificationService, EmailNotificationService>();
+builder.Services.AddScoped<IProviderApplicationService, ProviderApplicationService>();
+builder.Services.AddScoped<IServiceCatalogService, ServiceCatalogService>();
+builder.Services.AddScoped<IServiceOrderService, ServiceOrderService>();
+builder.Services.AddScoped<IServiceOrderCommunicationService, ServiceOrderCommunicationService>();
+builder.Services.AddScoped<IServiceOrderPaymentService, ServiceOrderPaymentService>();
+builder.Services.AddScoped<IServiceOrderReviewService, ServiceOrderReviewService>();
+builder.Services.AddScoped<IServiceOrderAuditService, ServiceOrderAuditService>();
+builder.Services.AddScoped<IServicePackageService, ServicePackageService>();
+builder.Services.AddScoped<ISellerApplicationService, SellerApplicationService>();
+builder.Services.AddScoped<IProductCatalogService, ProductCatalogService>();
+builder.Services.AddScoped<IProductListingService, ProductListingService>();
+builder.Services.AddScoped<INotificationService, MarketplaceNotificationService>();
+builder.Services.AddScoped<INotificationInboxService, MarketplaceNotificationService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenRefreshService, TokenRefreshService>();

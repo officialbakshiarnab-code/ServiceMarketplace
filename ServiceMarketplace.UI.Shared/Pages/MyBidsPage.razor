@@ -1,4 +1,5 @@
 @page "/provider/my-bids"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.Domain.Enums
 @using ServiceMarketplace.UI.Shared.Auth
@@ -9,7 +10,7 @@
 
 @code {
     private bool _isAuthenticated;
-    private string? _role;
+    private bool _hasServiceProviderCapability;
     private bool _loading = true;
     private string? _error;
     private List<ProviderBidDto> _bids = [];
@@ -17,7 +18,7 @@
     protected override async Task OnInitializedAsync()
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
+        _hasServiceProviderCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider);
 
         if (!_isAuthenticated)
         {
@@ -25,7 +26,7 @@
             return;
         }
 
-        if (!string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        if (!_hasServiceProviderCapability)
         {
             Nav.NavigateTo("/provider/dashboard", forceLoad: false);
             return;
@@ -66,7 +67,7 @@
         <button class="btn btn-link" @onclick="GoBack">Back to Dashboard</button>
     </div>
 
-    <AuthorizeView Roles="@RoleNames.Provider">
+    <AuthorizeView>
         <Authorized>
             <div class="card">
                 <div class="card-body">
@@ -109,6 +110,7 @@
                                             <p class="mb-1 small">
                                                 <strong>Bid:</strong> $@bid.Amount.ToString("0.00")
                                             </p>
+                                            <p class="mb-1 small text-muted">@bid.RequestCategory | @bid.ApproximateLocation</p>
                                             @if (!string.IsNullOrWhiteSpace(bid.Message))
                                             {
                                                 <p class="mb-1 small text-muted">@bid.Message</p>
@@ -116,6 +118,14 @@
                                             <p class="mb-0 small text-muted">
                                                 Proposed: @bid.ProposedDateTime.ToLocalTime().ToString("g")
                                             </p>
+                                            @if (bid.EstimatedDurationMinutes.HasValue)
+                                            {
+                                                <p class="mb-0 small text-muted">Estimated duration: @bid.EstimatedDurationMinutes.Value minutes</p>
+                                            }
+                                            @if (bid.IsExactLocationVisible)
+                                            {
+                                                <p class="mb-0 small text-success">Accepted location: @bid.ExactLocation</p>
+                                            }
                                         </div>
                                         <div class="text-end">
                                             <span class="badge @GetStatusBadgeClass(bid.Status) mb-2">@bid.Status</span>

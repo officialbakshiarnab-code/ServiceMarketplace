@@ -1,0 +1,111 @@
+@using ServiceMarketplace.Application.DTOs
+@inject ServiceOrderMessagesApiClient MessagesClient
+
+<div class="border-top mt-3 pt-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0">Messages</h6>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadAsync" disabled="@_loading">Refresh</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger py-2" role="alert">@_error</div>
+    }
+
+    @if (_loading)
+    {
+        <p class="text-muted small mb-0">Loading messages...</p>
+    }
+    else if (_messages.Count == 0)
+    {
+        <p class="text-muted small mb-2">No messages yet.</p>
+    }
+    else
+    {
+        <div class="list-group mb-2">
+            @foreach (var message in _messages)
+            {
+                <div class="list-group-item py-2">
+                    <div class="d-flex justify-content-between">
+                        <strong class="small">@GetSenderLabel(message)</strong>
+                        <small class="text-muted">@message.CreatedAt.ToLocalTime().ToString("g")</small>
+                    </div>
+                    <p class="mb-0 small">@message.Body</p>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="input-group">
+        <input class="form-control" @bind="_body" @bind:event="oninput" maxlength="2000" disabled="@_busy" />
+        <button class="btn btn-primary" @onclick="SendAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_body))">Send</button>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public Guid OrderId { get; set; }
+
+    [Parameter]
+    public string CurrentUserId { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string _body = string.Empty;
+    private List<ServiceOrderMessageDto> _messages = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _messages = await MessagesClient.GetMessagesAsync(OrderId);
+            await MessagesClient.MarkThreadReadAsync(OrderId);
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load messages.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_body))
+            return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await MessagesClient.SendAsync(OrderId, _body);
+            _body = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to send message.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string GetSenderLabel(ServiceOrderMessageDto message)
+    {
+        return string.Equals(message.SenderUserId, CurrentUserId, StringComparison.Ordinal)
+            ? "You"
+            : "Other party";
+    }
+}

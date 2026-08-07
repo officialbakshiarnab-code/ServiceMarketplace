@@ -1,4 +1,5 @@
 @page "/user/dashboard"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.UI.Shared.Auth
 @using ServiceMarketplace.UI.Shared.Requests
@@ -9,7 +10,7 @@
 
 @code {
     private bool _isAuthenticated;
-    private string? _role;
+    private bool _hasServiceCustomerCapability;
     private bool _loadingStats = true;
     private string? _statsError;
     private UserDashboardStatsDto? _stats;
@@ -17,9 +18,9 @@
     protected override async Task OnInitializedAsync()
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
+        _hasServiceCustomerCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer);
 
-        Console.WriteLine($"[UserDashboard] Auth: {_isAuthenticated}, Role: {_role}");
+        Console.WriteLine($"[UserDashboard] Auth: {_isAuthenticated}, ServiceCustomer: {_hasServiceCustomerCapability}");
 
         if (!_isAuthenticated)
         {
@@ -28,9 +29,9 @@
             return;
         }
 
-        if (string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        if (!_hasServiceCustomerCapability)
         {
-            Console.WriteLine("[UserDashboard] ServiceProvider detected, redirecting");
+            Console.WriteLine("[UserDashboard] Missing service.customer capability, redirecting");
             await Redirector.RedirectToDashboardAsync();
             return;
         }
@@ -72,6 +73,8 @@
 
     private void GoToCreateRequest() => Nav.NavigateTo("/user/create-request");
     private void GoToMyRequests() => Nav.NavigateTo("/user/my-requests");
+    private void GoToServiceOrders() => Nav.NavigateTo("/user/service-orders");
+    private void GoToProviderApplication() => Nav.NavigateTo("/account/provider-application");
 }
 
 <div class="container py-4">
@@ -80,7 +83,7 @@
         <LogoutButton />
     </div>
 
-    <AuthorizeView Roles="@RoleNames.User">
+    <AuthorizeView>
         <Authorized>
             <div class="row">
                 <div class="col-md-8">
@@ -97,6 +100,14 @@
                                 <button class="btn btn-lg btn-outline-primary" type="button" @onclick="GoToMyRequests">
                                     <i class="bi bi-list-ul me-2"></i>
                                     View My Requests
+                                </button>
+                                <button class="btn btn-lg btn-outline-success" type="button" @onclick="GoToServiceOrders">
+                                    <i class="bi bi-clipboard-check me-2"></i>
+                                    View Service Orders
+                                </button>
+                                <button class="btn btn-lg btn-outline-secondary" type="button" @onclick="GoToProviderApplication">
+                                    <i class="bi bi-person-check me-2"></i>
+                                    Become a Provider
                                 </button>
                             </div>
                         </div>

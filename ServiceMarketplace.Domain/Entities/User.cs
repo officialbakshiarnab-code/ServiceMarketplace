@@ -54,4 +54,6 @@ public class User
     public DateTime? UpdatedDate { get; set; }
 
     public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+    public ServiceProviderProfile? ServiceProviderProfile { get; set; }
+    public SellerProfile? SellerProfile { get; set; }
 }

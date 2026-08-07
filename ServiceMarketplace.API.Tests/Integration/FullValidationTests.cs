@@ -225,7 +225,7 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
     }
 
     [Fact]
-    public async Task RoleBasedAccess_ProviderCannotAccessUserEndpoints()
+    public async Task RoleBasedAccess_ProviderCanAccessUserEndpoints()
     {
         // Arrange
         var (token, _) = await LoginAsProviderAsync();
@@ -235,7 +235,7 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
         var response = await _client.GetAsync("/api/requests/mine");
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -518,6 +518,7 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
         var email = $"provider{Guid.NewGuid():N}@test.com";
         var registerReq = AuthRequestBuilder.CreateServiceProvider(email).BuildRegisterRequest();
         await _client.PostAsJsonAsync("/api/auth/register", registerReq);
+        await ApproveProviderAsync(email);
 
         var loginReq = new ServiceMarketplace.API.Models.Auth.LoginRequest
         {
@@ -540,6 +541,16 @@ public class FullValidationTests : IClassFixture<ServiceMarketplaceWebApplicatio
     {
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+    }
+
+    private async Task ApproveProviderAsync(string email)
+    {
+        var normalizedEmail = email.Trim().ToUpperInvariant();
+        var user = await _dbContext.Users.FirstAsync(u => u.NormalizedEmail == normalizedEmail);
+        user.IsKycSubmitted = true;
+        user.IsKycApproved = true;
+        user.UpdatedDate = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
     }
 
     #endregion

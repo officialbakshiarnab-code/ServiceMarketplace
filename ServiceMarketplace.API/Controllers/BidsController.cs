@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.DTOs;
+using ServiceMarketplace.Application.Exceptions;
 using ServiceMarketplace.Application.Interfaces;
 using System.Security.Claims;
 
@@ -11,7 +12,7 @@ namespace ServiceMarketplace.API.Controllers;
 [ApiController]
 [Route("api/bids")]
 // Purpose: Bid operations for service providers and users.
-// Roles: ServiceProvider (place bids), User (view bids for own request).
+// Capabilities: service.provider (place bids), service.customer (view bids for own request).
 public class BidsController : ControllerBase
 {
     private readonly IBidService _service;
@@ -28,7 +29,7 @@ public class BidsController : ControllerBase
     /// Places a bid on a service request.
     /// Rate Limited: 10 bids per 5 minutes per user.
     /// </summary>
-    [Authorize(Roles = RoleConstants.ServiceProvider)]
+    [Authorize(Policy = "ProviderOnly")]
     [HttpPost]
     [EnableRateLimiting("bids")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -63,6 +64,11 @@ public class BidsController : ControllerBase
             _logger.LogWarning(ex, "[BidsController] PlaceBid: Invalid operation");
             return BadRequest(new { error = ex.Message });
         }
+        catch (ForbiddenException ex)
+        {
+            _logger.LogWarning(ex, "[BidsController] PlaceBid: Forbidden");
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[BidsController] PlaceBid: Unexpected error");
@@ -71,7 +77,7 @@ public class BidsController : ControllerBase
     }
 
     // SERVICE PROVIDER views their own bids
-    [Authorize(Roles = RoleConstants.ServiceProvider)]
+    [Authorize(Policy = "ProviderOnly")]
     [HttpGet("mine")]
     public async Task<IActionResult> GetMine()
     {
@@ -97,7 +103,7 @@ public class BidsController : ControllerBase
     }
 
     // USER views bids for their request
-    [Authorize(Roles = RoleConstants.User)]
+    [Authorize(Policy = "UserOnly")]
     [HttpGet("{requestId}")]
     public async Task<IActionResult> GetBids(Guid requestId)
     {

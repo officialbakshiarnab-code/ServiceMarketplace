@@ -8,10 +8,10 @@ namespace ServiceMarketplace.Application.Constants;
 /// This ensures that changing a role name requires only updating this file.
 /// 
 /// ROLE DEFINITIONS:
-/// - User: Can create service requests and accept bids
-/// - ServiceProvider: Can browse requests and place bids
-/// - Both: Has both User and ServiceProvider capabilities (dual-role)
-/// - Admin: Has full system access (reserved for future use)
+/// - User: Legacy public registration role mapped to marketplace capabilities
+/// - ServiceProvider: Legacy public registration role mapped to provider capabilities
+/// - Both: Legacy public registration role mapped to customer and provider capabilities
+/// - Admin: Administrative role, not a marketplace capability
 /// </summary>
 public static class RoleConstants
 {
@@ -49,6 +49,17 @@ public static class RoleConstants
     };
 
     /// <summary>
+    /// Roles a public, anonymous registration request may choose.
+    /// Administrative access must be assigned through a controlled process.
+    /// </summary>
+    public static IReadOnlyList<string> PublicRegistrationRoles { get; } = new[]
+    {
+        User,
+        ServiceProvider,
+        Both
+    };
+
+    /// <summary>
     /// Validates that a role name is one of the known roles.
     /// </summary>
     /// <param name="role">Role name to validate</param>
@@ -56,6 +67,11 @@ public static class RoleConstants
     public static bool IsValidRole(string? role)
     {
         return !string.IsNullOrWhiteSpace(role) && AllRoles.Contains(role);
+    }
+
+    public static bool IsPublicRegistrationRole(string? role)
+    {
+        return !string.IsNullOrWhiteSpace(role) && PublicRegistrationRoles.Contains(role);
     }
 
     /// <summary>

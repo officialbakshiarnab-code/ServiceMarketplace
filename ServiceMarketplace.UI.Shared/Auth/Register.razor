@@ -107,7 +107,6 @@
     private bool _busy;
     private bool _success;
     private string? _error;
-    private string? _fileError;
     private string? _dobWarning;
 
     /// <summary>
@@ -133,7 +132,6 @@
         }
 
         _error = null;
-        _fileError = null;
         _success = false;
         _busy = true;
 
@@ -157,9 +155,6 @@
             // that accepts multipart/form-data AFTER registration succeeds.
             // This allows users to complete registration even if file upload fails.
             
-            // For now, we just validate the file client-side if it exists
-            _fileError = null;
-
             // Create request DTO with exact property names/types API expects
             var request = new RegisterRequest
             {

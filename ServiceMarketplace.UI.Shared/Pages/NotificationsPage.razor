@@ -1,0 +1,125 @@
+@page "/notifications"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject NotificationsApiClient NotificationsClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Notifications</h2>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="LoadAsync" disabled="@_loading">Refresh</button>
+            <button class="btn btn-sm btn-outline-primary" @onclick="MarkAllReadAsync" disabled="@_busy">Mark All Read</button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (_notifications.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No notifications.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var notification in _notifications)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between gap-3">
+                        <div>
+                            <h6 class="mb-1">@notification.Title</h6>
+                            <p class="mb-1 small">@notification.Message</p>
+                            <small class="text-muted">@notification.CreatedAt.ToLocalTime().ToString("g")</small>
+                        </div>
+                        <div class="text-end">
+                            @if (!notification.IsRead)
+                            {
+                                <span class="badge bg-primary mb-2">Unread</span>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => MarkReadAsync(notification.Id)" disabled="@_busy">Mark Read</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<UserNotificationDto> _notifications = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync())
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _notifications = await NotificationsClient.GetMineAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load notifications.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task MarkReadAsync(Guid notificationId)
+    {
+        await RunAsync(async () => await NotificationsClient.MarkReadAsync(notificationId));
+    }
+
+    private async Task MarkAllReadAsync()
+    {
+        await RunAsync(async () => await NotificationsClient.MarkAllReadAsync());
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to update notifications.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
