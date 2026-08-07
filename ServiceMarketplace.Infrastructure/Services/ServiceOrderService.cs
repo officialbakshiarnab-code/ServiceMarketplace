@@ -113,6 +113,16 @@ public sealed class ServiceOrderService(
         if (payment.Status != PaymentStatus.Held)
             throw new BadRequestException("Payment must be recorded and held before completion can be confirmed.");
 
+        var hasOpenDispute = await context.ServiceOrderDisputes.AnyAsync(d =>
+            d.ServiceOrderId == order.Id &&
+            d.Status != ServiceOrderDisputeStatus.RefundedToCustomer &&
+            d.Status != ServiceOrderDisputeStatus.ReleasedToProvider &&
+            d.Status != ServiceOrderDisputeStatus.Rejected &&
+            d.Status != ServiceOrderDisputeStatus.Cancelled);
+
+        if (hasOpenDispute)
+            throw new BadRequestException("Open disputes must be resolved before completion can be confirmed.");
+
         var fromStatus = order.Status;
         order.Status = ServiceOrderStatus.Completed;
         order.CompletedAt = DateTime.UtcNow;
@@ -124,6 +134,9 @@ public sealed class ServiceOrderService(
         payment.UpdatedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync();
+        if (payment.Method == PaymentMethod.Platform)
+            await EnsureProviderPayoutAsync(payment);
+
         await auditService.RecordAsync(
             order,
             customerId,
@@ -149,6 +162,11 @@ public sealed class ServiceOrderService(
             throw new BadRequestException("Orders with recorded payment cannot be cancelled from this workflow.");
 
         var reason = NormalizeReason(dto.Reason);
+        var pendingPlatformIntents = await context.PlatformPaymentIntents
+            .Where(i =>
+                i.ServiceOrderId == order.Id &&
+                i.Status == PlatformPaymentIntentStatus.PendingVerification)
+            .ToListAsync();
 
         var fromStatus = order.Status;
         order.Status = ServiceOrderStatus.Cancelled;
@@ -158,6 +176,13 @@ public sealed class ServiceOrderService(
         order.UpdatedAt = DateTime.UtcNow;
 
         order.ServiceRequest.Status = ServiceRequestStatus.Closed;
+
+        foreach (var intent in pendingPlatformIntents)
+        {
+            intent.Status = PlatformPaymentIntentStatus.Cancelled;
+            intent.FailureReason = "Order cancelled before platform payment verification.";
+            intent.UpdatedAt = DateTime.UtcNow;
+        }
 
         await context.SaveChangesAsync();
         await auditService.RecordAsync(
@@ -294,5 +319,28 @@ public sealed class ServiceOrderService(
             throw new BadRequestException("Cancellation reason cannot exceed 1000 characters.");
 
         return reason;
+    }
+
+    private async Task EnsureProviderPayoutAsync(ServiceOrderPayment payment)
+    {
+        var existing = await context.ProviderPayouts.AnyAsync(p => p.ServiceOrderPaymentId == payment.Id);
+        if (existing)
+            return;
+
+        var fee = payment.PlatformFeeAmount ?? Math.Round(payment.Amount * 0.10m, 2, MidpointRounding.AwayFromZero);
+        var payout = new ProviderPayout
+        {
+            ServiceOrderPaymentId = payment.Id,
+            ServiceOrderId = payment.ServiceOrderId,
+            ProviderId = payment.ProviderId,
+            GrossAmount = payment.Amount,
+            PlatformFeeAmount = fee,
+            PayoutAmount = payment.ProviderPayoutAmount ?? payment.Amount - fee,
+            Status = ProviderPayoutStatus.Pending
+        };
+
+        context.ProviderPayouts.Add(payout);
+        await context.SaveChangesAsync();
+        await notificationService.NotifyProviderPayoutCreatedAsync(payout.Id);
     }
 }

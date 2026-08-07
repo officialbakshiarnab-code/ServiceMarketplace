@@ -26,6 +26,9 @@ A full-stack service marketplace platform that connects customers seeking servic
 - Seller onboarding and admin approval for product-selling capability
 - Product catalog categories and seller-managed product listings for buyers to browse
 - Used product condition disclosure and category-specific inspection guidance
+- Product delivery orders with buyer/seller tracking, stock reservation, cancellation, and seller fulfillment status updates
+- Platform payment intent, admin verification, provider payout, and service-order dispute foundations
+- Unified marketplace search across fixed-price service packages and product listings
 - API rate limiting, security headers, and health checks
 
 ## Architecture
@@ -129,6 +132,12 @@ Use `DATABASE_SETUP.md` for local PostgreSQL setup and `full_migrations.sql` for
 - Registered buyers can browse active product listings by category and Kolkata zone.
 - Sellers can mark products as new or used; used products require condition notes and a seller inspection checklist.
 - Product categories return inspection prompts so buyers know what to verify before pickup.
+- Buyers can create product delivery orders from active listings; sellers confirm, ready, dispatch, deliver, or cancel orders.
+- Product order creation reserves listing stock, and participant cancellation restores reserved stock before delivery starts.
+- Customers can start a platform payment intent after provider completion; only admin/server-side verification creates a held platform payment.
+- Released platform payments create pending provider payout records with platform fee and provider payout amounts.
+- Participants can open disputes while payment is held; admins can refund the customer, release the provider, or reject the dispute.
+- Users can search services and products from one marketplace surface with keyword, type, zone, category, condition, price, and sort filters.
 
 ## Project Structure
 
@@ -152,7 +161,7 @@ dotnet test ServiceMarketplace.sln --no-build
 ```
 
 Integration tests cover registration, login, token refresh, authorization, bids, and request workflows.
-They also cover provider application submission/review, capability claims, approval gates, catalog-backed request creation, provider matching, bid comparison, accepted-provider address disclosure, service order lifecycle flows, order messaging, notification inbox behavior, payment recording, completion hardening, transaction-backed reviews, review moderation, fixed-price service package booking, seller approval, product listing management, buyer product browsing, used-product condition disclosure, inspection guidance, and the MVP Gate A full service transaction smoke path.
+They also cover provider application submission/review, capability claims, approval gates, catalog-backed request creation, provider matching, bid comparison, accepted-provider address disclosure, service order lifecycle flows, order messaging, notification inbox behavior, payment recording, completion hardening, transaction-backed reviews, review moderation, fixed-price service package booking, seller approval, product listing management, buyer product browsing, used-product condition disclosure, inspection guidance, product delivery order lifecycle behavior, platform payment verification, payout creation, dispute refunds, unified marketplace search, and the MVP Gate A full service transaction smoke path.
 
 ## Production Notes
 

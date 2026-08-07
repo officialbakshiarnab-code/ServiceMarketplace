@@ -30,6 +30,9 @@ public class ServiceOrder : BaseAuditableEntity
 
     public ICollection<ServiceOrderMessage> Messages { get; set; } = new List<ServiceOrderMessage>();
     public ICollection<ServiceOrderAuditEvent> AuditEvents { get; set; } = new List<ServiceOrderAuditEvent>();
+    public ICollection<PlatformPaymentIntent> PlatformPaymentIntents { get; set; } = new List<PlatformPaymentIntent>();
+    public ICollection<ProviderPayout> ProviderPayouts { get; set; } = new List<ProviderPayout>();
+    public ICollection<ServiceOrderDispute> Disputes { get; set; } = new List<ServiceOrderDispute>();
     public ServiceOrderPayment? Payment { get; set; }
     public ServiceOrderReview? Review { get; set; }
 }

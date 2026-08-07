@@ -13,4 +13,10 @@ public interface INotificationService
     Task NotifyOrderMessageReceivedAsync(Guid messageId);
     Task NotifyServiceOrderPaymentRecordedAsync(Guid paymentId);
     Task NotifyServiceOrderReviewReceivedAsync(Guid reviewId);
+    Task NotifyProductDeliveryOrderCreatedAsync(Guid productDeliveryOrderId);
+    Task NotifyProductDeliveryOrderStatusChangedAsync(Guid productDeliveryOrderId);
+    Task NotifyPlatformPaymentVerifiedAsync(Guid serviceOrderPaymentId);
+    Task NotifyServiceOrderDisputeOpenedAsync(Guid disputeId);
+    Task NotifyServiceOrderDisputeResolvedAsync(Guid disputeId);
+    Task NotifyProviderPayoutCreatedAsync(Guid payoutId);
 }

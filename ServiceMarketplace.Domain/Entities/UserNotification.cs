@@ -12,6 +12,9 @@ public class UserNotification : BaseAuditableEntity
     public Guid? ServiceRequestId { get; set; }
     public Guid? BidId { get; set; }
     public Guid? ServiceOrderMessageId { get; set; }
+    public Guid? ProductDeliveryOrderId { get; set; }
+    public Guid? ProviderPayoutId { get; set; }
+    public Guid? ServiceOrderDisputeId { get; set; }
     public bool IsRead { get; set; }
     public DateTime? ReadAt { get; set; }
 }

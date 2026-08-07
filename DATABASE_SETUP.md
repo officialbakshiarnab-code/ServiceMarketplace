@@ -32,7 +32,7 @@ Use environment variables for hosted or shared environments. `ServiceMarketplace
 
 ## One-Shot Setup SQL
 
-The root `full_migrations.sql` file is generated from EF Core migrations and can create all required tables, indexes, foreign keys, EF migration history, default role seed data, service categories, service zones, provider coverage fields, bid comparison fields, fixed-price service packages, service order lifecycle fields, order messages, notification inbox records, payment records, order reviews, service order audit events, seller profiles, product categories, product inspection prompts, product listings, and used-product disclosure fields.
+The root `full_migrations.sql` file is generated from EF Core migrations and can create all required tables, indexes, foreign keys, EF migration history, default role seed data, service categories, service zones, provider coverage fields, bid comparison fields, fixed-price service packages, service order lifecycle fields, order messages, notification inbox records, payment records, platform payment intents, provider payouts, service order disputes, order reviews, service order audit events, seller profiles, product categories, product inspection prompts, product listings, used-product disclosure fields, and product delivery orders.
 
 Run it with `psql`:
 
@@ -78,6 +78,10 @@ dotnet ef migrations script --project ServiceMarketplace.Infrastructure --startu
 - `ProductCategories`
 - `ProductInspectionPrompts`
 - `ProductListings`
+- `ProductDeliveryOrders`
+- `PlatformPaymentIntents`
+- `ProviderPayouts`
+- `ServiceOrderDisputes`
 
 Default seeded roles:
 

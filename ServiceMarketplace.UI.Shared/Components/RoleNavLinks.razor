@@ -32,6 +32,11 @@
             <span class="bi bi-grid" aria-hidden="true"></span> Service Packages
         </NavLink>
     </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link" href="/marketplace/search" Match="NavLinkMatch.Prefix">
+            <span class="bi bi-search" aria-hidden="true"></span> Search
+        </NavLink>
+    </div>
 }
 
 @if (_hasProductBuyerCapability)
@@ -41,6 +46,19 @@
             <span class="bi bi-bag" aria-hidden="true"></span> Products
         </NavLink>
     </div>
+    @if (!_hasServiceCustomerCapability)
+    {
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/marketplace/search" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-search" aria-hidden="true"></span> Search
+            </NavLink>
+        </div>
+    }
+    <div class="nav-item px-3">
+        <NavLink class="nav-link" href="/products/orders" Match="NavLinkMatch.Prefix">
+            <span class="bi bi-receipt" aria-hidden="true"></span> Product Orders
+        </NavLink>
+    </div>
 }
 
 @if (_hasProductSellerCapability)
@@ -48,6 +66,11 @@
     <div class="nav-item px-3">
         <NavLink class="nav-link" href="/seller/products" Match="NavLinkMatch.Prefix">
             <span class="bi bi-box-seam" aria-hidden="true"></span> My Products
+        </NavLink>
+    </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link" href="/seller/product-orders" Match="NavLinkMatch.Prefix">
+            <span class="bi bi-truck" aria-hidden="true"></span> Product Delivery
         </NavLink>
     </div>
 }

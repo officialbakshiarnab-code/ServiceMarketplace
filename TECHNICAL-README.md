@@ -44,8 +44,8 @@ Infrastructure Layer                 ServiceMarketplace.Infrastructure
 PostgreSQL Database
   - Users, Roles, UserRoles
   - ServiceRequests, ServiceCategories, ServiceZones, Bids, ServicePackages, ServiceOrders, ServiceOrderMessages
-  - SellerProfiles, ProductCategories, ProductInspectionPrompts, ProductListings
-  - ServiceOrderPayments, ServiceOrderReviews, ServiceOrderAuditEvents
+  - SellerProfiles, ProductCategories, ProductInspectionPrompts, ProductListings, ProductDeliveryOrders
+  - ServiceOrderPayments, PlatformPaymentIntents, ProviderPayouts, ServiceOrderDisputes, ServiceOrderReviews, ServiceOrderAuditEvents
   - UserNotifications
   - AuditLogs
   - RefreshTokens
@@ -116,6 +116,10 @@ Core tables:
 | `ProductCategories` | Active/inactive product catalog categories used by listings |
 | `ProductInspectionPrompts` | Category-specific used-product inspection prompts shown to buyers and sellers |
 | `ProductListings` | Seller-owned product listing records browsable by buyers, including condition disclosure |
+| `ProductDeliveryOrders` | Buyer-created product delivery orders with seller fulfillment status, delivery address, and reserved stock accounting |
+| `PlatformPaymentIntents` | Server-created platform payment attempts awaiting trusted verification |
+| `ProviderPayouts` | Provider payout records created when verified platform payments are released |
+| `ServiceOrderDisputes` | Participant-raised disputes for held service-order payments |
 
 Important relationships:
 
@@ -126,8 +130,14 @@ Important relationships:
 - `SellerProfiles` has many `ProductListings`.
 - `ProductListings` references `ProductCategories` and optionally `ServiceZones`.
 - `ProductCategories` has many `ProductInspectionPrompts`.
+- `ProductListings` has many `ProductDeliveryOrders`.
+- `SellerProfiles` has many `ProductDeliveryOrders` through seller user ID.
+- `ProductDeliveryOrders` optionally references `ServiceZones`.
 - `ServiceOrders` has many `ServiceOrderMessages`.
 - `ServiceOrders` has at most one `ServiceOrderPayment`.
+- `ServiceOrders` has many `PlatformPaymentIntents` and `ServiceOrderDisputes`.
+- `ServiceOrderPayments` can reference one verified `PlatformPaymentIntent`.
+- `ServiceOrderPayments` has at most one `ProviderPayout` for released platform funds.
 - `ServiceOrders` has at most one `ServiceOrderReview`.
 - `ServiceOrders` has many `ServiceOrderAuditEvents`.
 - `UserNotifications` stores order, request, bid, and message IDs for inbox deep links.
@@ -161,6 +171,17 @@ Important relationships:
 - Buyers can browse active product listings with stock by product category, zone, and condition.
 - Used product listings require condition notes and seller inspection checklist details before activation.
 - Product catalog responses include category-specific used-product inspection prompts.
+- Buyers can place product delivery orders against active, stocked listings from approved sellers.
+- Product delivery order creation reserves listing stock; cancellation before delivery starts restores stock.
+- Sellers advance product delivery orders through pending confirmation, confirmed, ready for pickup, out for delivery, and delivered statuses.
+- Direct client-side platform payment recording remains rejected.
+- Customers create platform payment intents after provider completion; admin/server verification creates the held platform payment record.
+- Customer completion releases held platform payments and creates pending provider payout records.
+- Active disputes block completion until admin resolution.
+- Admin dispute resolution can refund the customer, release the provider, or reject the dispute.
+- Unified marketplace search reads active service packages and active stocked product listings from approved providers/sellers.
+- Search supports keyword matching across titles, descriptions, categories, and seller/provider display names.
+- Search supports type, service category, product category, zone, product condition, price range, and sort filters.
 - Providers can start an order and mark it provider-completed; customers confirm final completion.
 - Customers or accepted providers can cancel active orders with a reason.
 - Completed or cancelled orders close the original service request.
@@ -192,9 +213,14 @@ Important relationships:
 - Provider commercial actions require active, approved provider status, preferring the `ServiceProviderProfiles` approval lifecycle with legacy KYC compatibility.
 - Product seller actions require approved seller profile status and `product.seller` capability.
 - Used product disclosure fields are seller-controlled but API-validated for presence before active used listings can be published.
+- Product delivery order APIs are participant-scoped: buyers see their own orders and approved sellers see orders for their listings.
+- Sellers cannot create delivery orders for their own product listings.
 - Exact request location is withheld from provider listings/details before provider selection and is omitted from JSON when not visible.
 - Order message APIs return 404 for non-participants so order existence and thread content are not disclosed.
 - Payment and review APIs are order-participant scoped; non-participants receive not-found behavior.
+- Platform payment verification, payout paid marking, and dispute resolution are Admin-only.
+- Platform payment success is represented only after trusted server/admin verification, not by customer-submitted payment status.
+- Unified marketplace search is authenticated and customer-capability scoped so public anonymous marketplace inventory is not exposed yet.
 - Client-submitted platform payment success is not accepted; gateway-backed platform payments are deferred.
 - Service order audit history is participant-scoped for reads and append-only through service-layer hooks.
 - Rate limits protect auth, refresh, bid, request, and admin endpoints.

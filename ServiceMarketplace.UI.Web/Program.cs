@@ -89,6 +89,8 @@ builder.Services.AddScoped<BidsApiClient>();
 builder.Services.AddScoped<ProviderApplicationsApiClient>();
 builder.Services.AddScoped<SellerApplicationsApiClient>();
 builder.Services.AddScoped<ProductListingsApiClient>();
+builder.Services.AddScoped<ProductDeliveryOrdersApiClient>();
+builder.Services.AddScoped<MarketplaceSearchApiClient>();
 builder.Services.AddScoped<AuditLogsApiClient>();
 builder.Services.AddScoped<AdminKpiApiClient>();
 

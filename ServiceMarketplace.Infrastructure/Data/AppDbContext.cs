@@ -26,6 +26,9 @@ public class AppDbContext : DbContext
     public DbSet<ServiceOrderMessage> ServiceOrderMessages => Set<ServiceOrderMessage>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<ServiceOrderPayment> ServiceOrderPayments => Set<ServiceOrderPayment>();
+    public DbSet<PlatformPaymentIntent> PlatformPaymentIntents => Set<PlatformPaymentIntent>();
+    public DbSet<ProviderPayout> ProviderPayouts => Set<ProviderPayout>();
+    public DbSet<ServiceOrderDispute> ServiceOrderDisputes => Set<ServiceOrderDispute>();
     public DbSet<ServiceOrderReview> ServiceOrderReviews => Set<ServiceOrderReview>();
     public DbSet<ServiceOrderAuditEvent> ServiceOrderAuditEvents => Set<ServiceOrderAuditEvent>();
     public DbSet<ServicePackage> ServicePackages => Set<ServicePackage>();
@@ -33,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
     public DbSet<ProductInspectionPrompt> ProductInspectionPrompts => Set<ProductInspectionPrompt>();
     public DbSet<ProductListing> ProductListings => Set<ProductListing>();
+    public DbSet<ProductDeliveryOrder> ProductDeliveryOrders => Set<ProductDeliveryOrder>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -274,6 +278,15 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.ServiceOrderId)
                 .HasDatabaseName("IX_UserNotifications_ServiceOrderId");
+
+            entity.HasIndex(e => e.ProductDeliveryOrderId)
+                .HasDatabaseName("IX_UserNotifications_ProductDeliveryOrderId");
+
+            entity.HasIndex(e => e.ProviderPayoutId)
+                .HasDatabaseName("IX_UserNotifications_ProviderPayoutId");
+
+            entity.HasIndex(e => e.ServiceOrderDisputeId)
+                .HasDatabaseName("IX_UserNotifications_ServiceOrderDisputeId");
         });
 
         builder.Entity<SellerProfile>(entity =>
@@ -456,6 +469,58 @@ public class AppDbContext : DbContext
                 .HasDatabaseName("IX_ProductListings_SellerId");
         });
 
+        builder.Entity<ProductDeliveryOrder>(entity =>
+        {
+            entity.ToTable("ProductDeliveryOrders");
+            entity.HasKey(o => o.Id);
+
+            entity.Property(o => o.BuyerId).IsRequired().HasMaxLength(450);
+            entity.Property(o => o.Quantity).IsRequired();
+            entity.Property(o => o.UnitPrice).HasPrecision(18, 2).IsRequired();
+            entity.Property(o => o.TotalPrice).HasPrecision(18, 2).IsRequired();
+            entity.Property(o => o.Status)
+                .HasConversion<short>()
+                .IsRequired()
+                .HasDefaultValue(ProductDeliveryStatus.PendingSellerConfirmation);
+            entity.Property(o => o.DeliveryRecipientName).IsRequired().HasMaxLength(150);
+            entity.Property(o => o.DeliveryPhoneNumber).IsRequired().HasMaxLength(20);
+            entity.Property(o => o.DeliveryAddress).IsRequired().HasMaxLength(500);
+            entity.Property(o => o.DeliveryCity).IsRequired().HasMaxLength(100);
+            entity.Property(o => o.DeliveryState).IsRequired().HasMaxLength(100);
+            entity.Property(o => o.BuyerNotes).HasMaxLength(1000);
+            entity.Property(o => o.CancellationReason).HasMaxLength(1000);
+            entity.Property(o => o.CancelledByUserId).HasMaxLength(450);
+            entity.Property(o => o.CreatedAt).IsRequired();
+
+            entity.HasOne(o => o.ProductListing)
+                .WithMany(p => p.DeliveryOrders)
+                .HasForeignKey(o => o.ProductListingId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(o => o.SellerProfile)
+                .WithMany(s => s.ProductDeliveryOrders)
+                .HasPrincipalKey(s => s.UserId)
+                .HasForeignKey(o => o.SellerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(o => o.ServiceZone)
+                .WithMany(z => z.ProductDeliveryOrders)
+                .HasForeignKey(o => o.ServiceZoneId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(o => o.ProductListingId)
+                .HasDatabaseName("IX_ProductDeliveryOrders_ProductListingId");
+
+            entity.HasIndex(o => new { o.BuyerId, o.Status, o.CreatedAt })
+                .HasDatabaseName("IX_ProductDeliveryOrders_BuyerStatusCreated");
+
+            entity.HasIndex(o => new { o.SellerId, o.Status, o.CreatedAt })
+                .HasDatabaseName("IX_ProductDeliveryOrders_SellerStatusCreated");
+
+            entity.HasIndex(o => o.ServiceZoneId)
+                .HasDatabaseName("IX_ProductDeliveryOrders_ServiceZoneId");
+        });
+
         builder.Entity<ServiceOrderPayment>(entity =>
         {
             entity.ToTable("ServiceOrderPayments");
@@ -464,6 +529,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CustomerId).IsRequired().HasMaxLength(450);
             entity.Property(e => e.ProviderId).IsRequired().HasMaxLength(450);
             entity.Property(e => e.Amount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.PlatformFeeAmount).HasPrecision(18, 2);
+            entity.Property(e => e.ProviderPayoutAmount).HasPrecision(18, 2);
             entity.Property(e => e.Method).HasConversion<short>().IsRequired();
             entity.Property(e => e.Status).HasConversion<short>().IsRequired();
             entity.Property(e => e.ReferenceNumber).HasMaxLength(200);
@@ -477,12 +544,122 @@ public class AppDbContext : DbContext
                 .HasForeignKey<ServiceOrderPayment>(e => e.ServiceOrderId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            entity.HasOne(e => e.PlatformPaymentIntent)
+                .WithMany()
+                .HasForeignKey(e => e.PlatformPaymentIntentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             entity.HasIndex(e => e.ServiceOrderId)
                 .IsUnique()
                 .HasDatabaseName("UX_ServiceOrderPayments_ServiceOrderId");
 
+            entity.HasIndex(e => e.PlatformPaymentIntentId)
+                .IsUnique()
+                .HasDatabaseName("UX_ServiceOrderPayments_PlatformPaymentIntentId");
+
             entity.HasIndex(e => new { e.ProviderId, e.Status })
                 .HasDatabaseName("IX_ServiceOrderPayments_ProviderStatus");
+        });
+
+        builder.Entity<PlatformPaymentIntent>(entity =>
+        {
+            entity.ToTable("PlatformPaymentIntents");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CustomerId).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.ProviderId).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.Amount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.PlatformFeeAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.ProviderPayoutAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.Status).HasConversion<short>().IsRequired();
+            entity.Property(e => e.GatewayReference).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.GatewayPaymentId).HasMaxLength(200);
+            entity.Property(e => e.VerificationNotes).HasMaxLength(1000);
+            entity.Property(e => e.FailureReason).HasMaxLength(1000);
+            entity.Property(e => e.VerifiedByUserId).HasMaxLength(450);
+            entity.Property(e => e.ExpiresAt).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasOne(e => e.ServiceOrder)
+                .WithMany(o => o.PlatformPaymentIntents)
+                .HasForeignKey(e => e.ServiceOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.GatewayReference)
+                .IsUnique()
+                .HasDatabaseName("UX_PlatformPaymentIntents_GatewayReference");
+
+            entity.HasIndex(e => new { e.ServiceOrderId, e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_PlatformPaymentIntents_OrderStatusCreated");
+
+            entity.HasIndex(e => new { e.CustomerId, e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_PlatformPaymentIntents_CustomerStatusCreated");
+        });
+
+        builder.Entity<ProviderPayout>(entity =>
+        {
+            entity.ToTable("ProviderPayouts");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ProviderId).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.GrossAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.PlatformFeeAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.PayoutAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.Status).HasConversion<short>().IsRequired();
+            entity.Property(e => e.PayoutReference).HasMaxLength(200);
+            entity.Property(e => e.Notes).HasMaxLength(1000);
+            entity.Property(e => e.MarkedPaidByUserId).HasMaxLength(450);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasOne(e => e.ServiceOrderPayment)
+                .WithOne(p => p.ProviderPayout)
+                .HasForeignKey<ProviderPayout>(e => e.ServiceOrderPaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ServiceOrder)
+                .WithMany(o => o.ProviderPayouts)
+                .HasForeignKey(e => e.ServiceOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.ServiceOrderPaymentId)
+                .IsUnique()
+                .HasDatabaseName("UX_ProviderPayouts_ServiceOrderPaymentId");
+
+            entity.HasIndex(e => new { e.ProviderId, e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_ProviderPayouts_ProviderStatusCreated");
+
+            entity.HasIndex(e => new { e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_ProviderPayouts_StatusCreated");
+        });
+
+        builder.Entity<ServiceOrderDispute>(entity =>
+        {
+            entity.ToTable("ServiceOrderDisputes");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.RaisedByUserId).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.AgainstUserId).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.Reason).IsRequired().HasMaxLength(1000);
+            entity.Property(e => e.Status).HasConversion<short>().IsRequired();
+            entity.Property(e => e.ResolutionNotes).HasMaxLength(1000);
+            entity.Property(e => e.ResolvedByUserId).HasMaxLength(450);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasOne(e => e.ServiceOrder)
+                .WithMany(o => o.Disputes)
+                .HasForeignKey(e => e.ServiceOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ServiceOrderPayment)
+                .WithMany(p => p.Disputes)
+                .HasForeignKey(e => e.ServiceOrderPaymentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => new { e.ServiceOrderId, e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_ServiceOrderDisputes_OrderStatusCreated");
+
+            entity.HasIndex(e => new { e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_ServiceOrderDisputes_StatusCreated");
         });
 
         builder.Entity<ServiceOrderReview>(entity =>

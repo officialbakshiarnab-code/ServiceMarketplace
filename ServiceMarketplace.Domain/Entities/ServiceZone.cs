@@ -14,4 +14,5 @@ public class ServiceZone : BaseAuditableEntity
     public ICollection<ServiceRequest> ServiceRequests { get; set; } = new List<ServiceRequest>();
     public ICollection<ServicePackage> ServicePackages { get; set; } = new List<ServicePackage>();
     public ICollection<ProductListing> ProductListings { get; set; } = new List<ProductListing>();
+    public ICollection<ProductDeliveryOrder> ProductDeliveryOrders { get; set; } = new List<ProductDeliveryOrder>();
 }

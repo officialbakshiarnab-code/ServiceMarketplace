@@ -1,0 +1,260 @@
+@page "/marketplace/search"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject MarketplaceSearchApiClient SearchClient
+@inject ServiceCatalogApiClient ServiceCatalogClient
+@inject ProductCatalogApiClient ProductCatalogClient
+@inject AuthState AuthState
+@inject NavigationManager Nav
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Search</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-lg-4">
+            <input class="form-control" placeholder="Search services or products" @bind="_query" @bind:event="oninput" />
+        </div>
+        <div class="col-sm-6 col-lg-2">
+            <select class="form-select" @bind="_typeFilter">
+                <option value="">All</option>
+                <option value="@((int)MarketplaceSearchItemType.ServicePackage)">Services</option>
+                <option value="@((int)MarketplaceSearchItemType.ProductListing)">Products</option>
+            </select>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <select class="form-select" @bind="_categoryFilter">
+                <option value="">All categories</option>
+                @foreach (var category in ActiveCategories)
+                {
+                    <option value="@category.Id">@category.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <select class="form-select" @bind="_zoneFilter">
+                <option value="">All Kolkata zones</option>
+                @foreach (var zone in _zones)
+                {
+                    <option value="@zone.Id">@zone.DisplayName</option>
+                }
+            </select>
+        </div>
+        <div class="col-sm-6 col-lg-2">
+            <input class="form-control" type="number" step="0.01" placeholder="Min price" @bind="_minPrice" />
+        </div>
+        <div class="col-sm-6 col-lg-2">
+            <input class="form-control" type="number" step="0.01" placeholder="Max price" @bind="_maxPrice" />
+        </div>
+        <div class="col-sm-6 col-lg-2">
+            <select class="form-select" @bind="_conditionFilter" disabled="@(!IsProductSearch)">
+                <option value="">Any condition</option>
+                <option value="@((int)ProductCondition.New)">New</option>
+                <option value="@((int)ProductCondition.LikeNew)">Like new</option>
+                <option value="@((int)ProductCondition.Good)">Good</option>
+                <option value="@((int)ProductCondition.Fair)">Fair</option>
+                <option value="@((int)ProductCondition.NeedsRepair)">Needs repair</option>
+            </select>
+        </div>
+        <div class="col-sm-6 col-lg-2">
+            <select class="form-select" @bind="_sort">
+                <option value="@MarketplaceSearchSort.Relevance">Relevance</option>
+                <option value="@MarketplaceSearchSort.PriceLowToHigh">Price low</option>
+                <option value="@MarketplaceSearchSort.PriceHighToLow">Price high</option>
+                <option value="@MarketplaceSearchSort.Newest">Newest</option>
+            </select>
+        </div>
+        <div class="col-lg-2 d-grid">
+            <button class="btn btn-primary" @onclick="SearchAsync" disabled="@_loading">Search</button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else
+    {
+        <div class="d-flex gap-2 mb-3">
+            <span class="badge bg-secondary">@_response.TotalCount results</span>
+            <span class="badge bg-primary">@_response.ServicePackageCount services</span>
+            <span class="badge bg-success">@_response.ProductListingCount products</span>
+        </div>
+
+        @if (_response.Items.Count == 0)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <p class="text-muted mb-0">No matching marketplace results.</p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var item in _response.Items)
+                {
+                    <div class="col-lg-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <div class="d-flex gap-3">
+                                    @if (!string.IsNullOrWhiteSpace(item.ImageUrl))
+                                    {
+                                        <img src="@item.ImageUrl" alt="@item.Title" class="rounded" style="width: 92px; height: 92px; object-fit: cover;" />
+                                    }
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex justify-content-between gap-3">
+                                            <div>
+                                                <span class="badge @(item.Type == MarketplaceSearchItemType.ServicePackage ? "bg-primary" : "bg-success") mb-2">@TypeLabel(item.Type)</span>
+                                                <h5 class="mb-1">@item.Title</h5>
+                                            </div>
+                                            <div class="fw-bold text-nowrap">$@item.Price.ToString("0.00")</div>
+                                        </div>
+                                        <p class="small text-muted mb-1">@item.CategoryName | @item.ZoneName</p>
+                                        <p class="mb-2">@item.Description</p>
+                                        <p class="small text-muted mb-2">
+                                            @item.SellerOrProviderName
+                                            @if (!string.IsNullOrWhiteSpace(item.BusinessName))
+                                            {
+                                                <span> | @item.BusinessName</span>
+                                            }
+                                        </p>
+                                        @if (item.Type == MarketplaceSearchItemType.ProductListing)
+                                        {
+                                            <p class="small mb-2">@item.ProductConditionLabel | @item.StockQuantity in stock</p>
+                                        }
+                                        else
+                                        {
+                                            <p class="small mb-2">
+                                                @if (item.EstimatedDurationMinutes.HasValue)
+                                                {
+                                                    <span>@item.EstimatedDurationMinutes min | </span>
+                                                }
+                                                @item.ProviderAverageRating?.ToString("0.0") / 5 (@item.ProviderReviewCount)
+                                            </p>
+                                        }
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Nav.NavigateTo(item.ActionRoute)">@item.ActionLabel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private string _query = string.Empty;
+    private string _typeFilter = string.Empty;
+    private string _categoryFilter = string.Empty;
+    private string _zoneFilter = string.Empty;
+    private string _conditionFilter = string.Empty;
+    private decimal? _minPrice;
+    private decimal? _maxPrice;
+    private MarketplaceSearchSort _sort = MarketplaceSearchSort.Relevance;
+    private MarketplaceSearchResponse _response = new();
+    private List<ServiceCategoryDto> _serviceCategories = [];
+    private List<ProductCategoryDto> _productCategories = [];
+    private List<ServiceZoneDto> _zones = [];
+
+    private bool IsProductSearch => ParseType(_typeFilter) == MarketplaceSearchItemType.ProductListing;
+
+    private IEnumerable<dynamic> ActiveCategories => ParseType(_typeFilter) switch
+    {
+        MarketplaceSearchItemType.ServicePackage => _serviceCategories.Select(c => new { c.Id, c.Name }),
+        MarketplaceSearchItemType.ProductListing => _productCategories.Select(c => new { c.Id, c.Name }),
+        _ => Enumerable.Empty<dynamic>()
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _serviceCategories = await ServiceCatalogClient.GetCategoriesAsync();
+            _productCategories = await ProductCatalogClient.GetCategoriesAsync();
+            _zones = await ServiceCatalogClient.GetZonesAsync();
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load marketplace search.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var type = ParseType(_typeFilter);
+            var categoryId = ParseGuid(_categoryFilter);
+            _response = await SearchClient.SearchAsync(new MarketplaceSearchRequest
+            {
+                Query = _query,
+                Type = type,
+                ServiceCategoryId = type == MarketplaceSearchItemType.ServicePackage ? categoryId : null,
+                ProductCategoryId = type == MarketplaceSearchItemType.ProductListing ? categoryId : null,
+                ZoneId = ParseGuid(_zoneFilter),
+                ProductCondition = ParseCondition(_conditionFilter),
+                MinPrice = _minPrice,
+                MaxPrice = _maxPrice,
+                Sort = _sort,
+                Take = 30
+            });
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to search marketplace.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static MarketplaceSearchItemType? ParseType(string value)
+    {
+        return int.TryParse(value, out var raw) && Enum.IsDefined(typeof(MarketplaceSearchItemType), raw)
+            ? (MarketplaceSearchItemType)raw
+            : null;
+    }
+
+    private static Guid? ParseGuid(string value) => Guid.TryParse(value, out var id) ? id : null;
+
+    private static ProductCondition? ParseCondition(string value)
+    {
+        return int.TryParse(value, out var raw) && Enum.IsDefined(typeof(ProductCondition), raw)
+            ? (ProductCondition)raw
+            : null;
+    }
+
+    private static string TypeLabel(MarketplaceSearchItemType type) =>
+        type == MarketplaceSearchItemType.ServicePackage ? "Service" : "Product";
+
+    private void GoBack() => Nav.NavigateTo("/user/dashboard");
+}

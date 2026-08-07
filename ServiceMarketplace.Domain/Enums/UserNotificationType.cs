@@ -11,5 +11,11 @@ public enum UserNotificationType
     ServiceOrderCancelled = 7,
     OrderMessageReceived = 8,
     ServiceOrderPaymentRecorded = 9,
-    ServiceOrderReviewReceived = 10
+    ServiceOrderReviewReceived = 10,
+    ProductDeliveryOrderCreated = 11,
+    ProductDeliveryOrderStatusChanged = 12,
+    PlatformPaymentVerified = 13,
+    ServiceOrderDisputeOpened = 14,
+    ServiceOrderDisputeResolved = 15,
+    ProviderPayoutCreated = 16
 }

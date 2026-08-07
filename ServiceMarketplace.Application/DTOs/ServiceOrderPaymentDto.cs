@@ -8,7 +8,10 @@ public class ServiceOrderPaymentDto
     public Guid ServiceOrderId { get; set; }
     public string CustomerId { get; set; } = string.Empty;
     public string ProviderId { get; set; } = string.Empty;
+    public Guid? PlatformPaymentIntentId { get; set; }
     public decimal Amount { get; set; }
+    public decimal? PlatformFeeAmount { get; set; }
+    public decimal? ProviderPayoutAmount { get; set; }
     public PaymentMethod Method { get; set; }
     public PaymentStatus Status { get; set; }
     public string? ReferenceNumber { get; set; }

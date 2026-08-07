@@ -214,6 +214,146 @@ public sealed class MarketplaceNotificationService(
         await context.SaveChangesAsync();
     }
 
+    public async Task NotifyProductDeliveryOrderCreatedAsync(Guid productDeliveryOrderId)
+    {
+        var order = await LoadProductDeliveryOrderAsync(productDeliveryOrderId);
+        if (order == null)
+            return;
+
+        AddNotification(
+            order.SellerId.ToString(),
+            UserNotificationType.ProductDeliveryOrderCreated,
+            "New product delivery order",
+            $"New delivery order for {order.ProductListing.Title}.",
+            productDeliveryOrderId: order.Id);
+
+        AddNotification(
+            order.BuyerId,
+            UserNotificationType.ProductDeliveryOrderCreated,
+            "Product order placed",
+            $"Your delivery order for {order.ProductListing.Title} was sent to the seller.",
+            productDeliveryOrderId: order.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyProductDeliveryOrderStatusChangedAsync(Guid productDeliveryOrderId)
+    {
+        var order = await LoadProductDeliveryOrderAsync(productDeliveryOrderId);
+        if (order == null)
+            return;
+
+        var statusLabel = ToProductDeliveryStatusLabel(order.Status);
+
+        AddNotification(
+            order.BuyerId,
+            UserNotificationType.ProductDeliveryOrderStatusChanged,
+            "Product delivery updated",
+            $"{order.ProductListing.Title} is now {statusLabel}.",
+            productDeliveryOrderId: order.Id);
+
+        AddNotification(
+            order.SellerId.ToString(),
+            UserNotificationType.ProductDeliveryOrderStatusChanged,
+            "Product delivery updated",
+            $"Delivery order for {order.ProductListing.Title} is now {statusLabel}.",
+            productDeliveryOrderId: order.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyPlatformPaymentVerifiedAsync(Guid serviceOrderPaymentId)
+    {
+        var payment = await context.ServiceOrderPayments
+            .AsNoTracking()
+            .Include(p => p.ServiceOrder)
+            .ThenInclude(o => o.ServiceRequest)
+            .FirstOrDefaultAsync(p => p.Id == serviceOrderPaymentId);
+
+        if (payment == null)
+            return;
+
+        AddNotification(
+            payment.CustomerId,
+            UserNotificationType.PlatformPaymentVerified,
+            "Platform payment verified",
+            $"Platform payment was verified for {payment.ServiceOrder.ServiceRequest.Title}.",
+            payment.ServiceOrderId);
+
+        AddNotification(
+            payment.ProviderId,
+            UserNotificationType.PlatformPaymentVerified,
+            "Platform payment held",
+            $"Platform payment is held for {payment.ServiceOrder.ServiceRequest.Title}.",
+            payment.ServiceOrderId);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyServiceOrderDisputeOpenedAsync(Guid disputeId)
+    {
+        var dispute = await LoadDisputeAsync(disputeId);
+        if (dispute == null)
+            return;
+
+        AddNotification(
+            dispute.AgainstUserId,
+            UserNotificationType.ServiceOrderDisputeOpened,
+            "Service order dispute opened",
+            $"A dispute was opened for {dispute.ServiceOrder.ServiceRequest.Title}.",
+            dispute.ServiceOrderId,
+            serviceOrderDisputeId: dispute.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyServiceOrderDisputeResolvedAsync(Guid disputeId)
+    {
+        var dispute = await LoadDisputeAsync(disputeId);
+        if (dispute == null)
+            return;
+
+        AddNotification(
+            dispute.RaisedByUserId,
+            UserNotificationType.ServiceOrderDisputeResolved,
+            "Service order dispute resolved",
+            $"Dispute resolved for {dispute.ServiceOrder.ServiceRequest.Title}.",
+            dispute.ServiceOrderId,
+            serviceOrderDisputeId: dispute.Id);
+
+        AddNotification(
+            dispute.AgainstUserId,
+            UserNotificationType.ServiceOrderDisputeResolved,
+            "Service order dispute resolved",
+            $"Dispute resolved for {dispute.ServiceOrder.ServiceRequest.Title}.",
+            dispute.ServiceOrderId,
+            serviceOrderDisputeId: dispute.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyProviderPayoutCreatedAsync(Guid payoutId)
+    {
+        var payout = await context.ProviderPayouts
+            .AsNoTracking()
+            .Include(p => p.ServiceOrder)
+            .ThenInclude(o => o.ServiceRequest)
+            .FirstOrDefaultAsync(p => p.Id == payoutId);
+
+        if (payout == null)
+            return;
+
+        AddNotification(
+            payout.ProviderId,
+            UserNotificationType.ProviderPayoutCreated,
+            "Provider payout pending",
+            $"Payout of {payout.PayoutAmount:0.00} is pending for {payout.ServiceOrder.ServiceRequest.Title}.",
+            payout.ServiceOrderId,
+            providerPayoutId: payout.Id);
+
+        await context.SaveChangesAsync();
+    }
+
     public async Task<List<UserNotificationDto>> GetMineAsync(string userId, bool unreadOnly = false)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -278,6 +418,23 @@ public sealed class MarketplaceNotificationService(
             .FirstOrDefaultAsync(o => o.Id == orderId);
     }
 
+    private async Task<ProductDeliveryOrder?> LoadProductDeliveryOrderAsync(Guid orderId)
+    {
+        return await context.ProductDeliveryOrders
+            .AsNoTracking()
+            .Include(o => o.ProductListing)
+            .FirstOrDefaultAsync(o => o.Id == orderId);
+    }
+
+    private async Task<ServiceOrderDispute?> LoadDisputeAsync(Guid disputeId)
+    {
+        return await context.ServiceOrderDisputes
+            .AsNoTracking()
+            .Include(d => d.ServiceOrder)
+            .ThenInclude(o => o.ServiceRequest)
+            .FirstOrDefaultAsync(d => d.Id == disputeId);
+    }
+
     private void AddNotification(
         string userId,
         UserNotificationType type,
@@ -286,7 +443,10 @@ public sealed class MarketplaceNotificationService(
         Guid? serviceOrderId = null,
         Guid? serviceRequestId = null,
         Guid? bidId = null,
-        Guid? serviceOrderMessageId = null)
+        Guid? serviceOrderMessageId = null,
+        Guid? productDeliveryOrderId = null,
+        Guid? providerPayoutId = null,
+        Guid? serviceOrderDisputeId = null)
     {
         context.UserNotifications.Add(new UserNotification
         {
@@ -298,6 +458,9 @@ public sealed class MarketplaceNotificationService(
             ServiceRequestId = serviceRequestId,
             BidId = bidId,
             ServiceOrderMessageId = serviceOrderMessageId,
+            ProductDeliveryOrderId = productDeliveryOrderId,
+            ProviderPayoutId = providerPayoutId,
+            ServiceOrderDisputeId = serviceOrderDisputeId,
             CreatedAt = DateTime.UtcNow
         });
     }
@@ -315,9 +478,23 @@ public sealed class MarketplaceNotificationService(
             ServiceRequestId = notification.ServiceRequestId,
             BidId = notification.BidId,
             ServiceOrderMessageId = notification.ServiceOrderMessageId,
+            ProductDeliveryOrderId = notification.ProductDeliveryOrderId,
+            ProviderPayoutId = notification.ProviderPayoutId,
+            ServiceOrderDisputeId = notification.ServiceOrderDisputeId,
             IsRead = notification.IsRead,
             ReadAt = notification.ReadAt,
             CreatedAt = notification.CreatedAt
         };
     }
+
+    private static string ToProductDeliveryStatusLabel(ProductDeliveryStatus status) => status switch
+    {
+        ProductDeliveryStatus.PendingSellerConfirmation => "pending seller confirmation",
+        ProductDeliveryStatus.Confirmed => "confirmed",
+        ProductDeliveryStatus.ReadyForPickup => "ready for pickup",
+        ProductDeliveryStatus.OutForDelivery => "out for delivery",
+        ProductDeliveryStatus.Delivered => "delivered",
+        ProductDeliveryStatus.Cancelled => "cancelled",
+        _ => status.ToString()
+    };
 }

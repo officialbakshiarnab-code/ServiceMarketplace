@@ -25,4 +25,6 @@ public class ProductListing : BaseAuditableEntity
     public bool HasOriginalBill { get; set; }
     public bool HasWarranty { get; set; }
     public ProductListingStatus Status { get; set; } = ProductListingStatus.Draft;
+
+    public ICollection<ProductDeliveryOrder> DeliveryOrders { get; set; } = new List<ProductDeliveryOrder>();
 }

@@ -27,4 +27,5 @@ public class SellerProfile : BaseAuditableEntity
     public string? RejectionReason { get; set; }
 
     public ICollection<ProductListing> ProductListings { get; set; } = new List<ProductListing>();
+    public ICollection<ProductDeliveryOrder> ProductDeliveryOrders { get; set; } = new List<ProductDeliveryOrder>();
 }

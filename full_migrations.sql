@@ -1175,5 +1175,307 @@ BEGIN
     VALUES ('20260807105120_AddUsedProductInspectionGuidance', '9.0.0');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    ALTER TABLE "UserNotifications" ADD "ProductDeliveryOrderId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    CREATE TABLE "ProductDeliveryOrders" (
+        "Id" uuid NOT NULL,
+        "ProductListingId" uuid NOT NULL,
+        "SellerId" uuid NOT NULL,
+        "BuyerId" character varying(450) NOT NULL,
+        "Quantity" integer NOT NULL,
+        "UnitPrice" numeric(18,2) NOT NULL,
+        "TotalPrice" numeric(18,2) NOT NULL,
+        "Status" smallint NOT NULL DEFAULT 1,
+        "DeliveryRecipientName" character varying(150) NOT NULL,
+        "DeliveryPhoneNumber" character varying(20) NOT NULL,
+        "DeliveryAddress" character varying(500) NOT NULL,
+        "DeliveryCity" character varying(100) NOT NULL,
+        "DeliveryState" character varying(100) NOT NULL,
+        "ServiceZoneId" uuid,
+        "BuyerNotes" character varying(1000),
+        "CancellationReason" character varying(1000),
+        "CancelledByUserId" character varying(450),
+        "ConfirmedAt" timestamp with time zone,
+        "ReadyForPickupAt" timestamp with time zone,
+        "OutForDeliveryAt" timestamp with time zone,
+        "DeliveredAt" timestamp with time zone,
+        "CancelledAt" timestamp with time zone,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_ProductDeliveryOrders" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_ProductDeliveryOrders_ProductListings_ProductListingId" FOREIGN KEY ("ProductListingId") REFERENCES "ProductListings" ("Id") ON DELETE RESTRICT,
+        CONSTRAINT "FK_ProductDeliveryOrders_SellerProfiles_SellerId" FOREIGN KEY ("SellerId") REFERENCES "SellerProfiles" ("UserId") ON DELETE RESTRICT,
+        CONSTRAINT "FK_ProductDeliveryOrders_ServiceZones_ServiceZoneId" FOREIGN KEY ("ServiceZoneId") REFERENCES "ServiceZones" ("Id") ON DELETE SET NULL
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    CREATE INDEX "IX_UserNotifications_ProductDeliveryOrderId" ON "UserNotifications" ("ProductDeliveryOrderId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    CREATE INDEX "IX_ProductDeliveryOrders_BuyerStatusCreated" ON "ProductDeliveryOrders" ("BuyerId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    CREATE INDEX "IX_ProductDeliveryOrders_ProductListingId" ON "ProductDeliveryOrders" ("ProductListingId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    CREATE INDEX "IX_ProductDeliveryOrders_SellerStatusCreated" ON "ProductDeliveryOrders" ("SellerId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    CREATE INDEX "IX_ProductDeliveryOrders_ServiceZoneId" ON "ProductDeliveryOrders" ("ServiceZoneId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807115847_AddProductDeliveryOrders') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260807115847_AddProductDeliveryOrders', '9.0.0');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    ALTER TABLE "UserNotifications" ADD "ProviderPayoutId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    ALTER TABLE "UserNotifications" ADD "ServiceOrderDisputeId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    ALTER TABLE "ServiceOrderPayments" ADD "PlatformFeeAmount" numeric(18,2);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    ALTER TABLE "ServiceOrderPayments" ADD "PlatformPaymentIntentId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    ALTER TABLE "ServiceOrderPayments" ADD "ProviderPayoutAmount" numeric(18,2);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE TABLE "PlatformPaymentIntents" (
+        "Id" uuid NOT NULL,
+        "ServiceOrderId" uuid NOT NULL,
+        "CustomerId" character varying(450) NOT NULL,
+        "ProviderId" character varying(450) NOT NULL,
+        "Amount" numeric(18,2) NOT NULL,
+        "PlatformFeeAmount" numeric(18,2) NOT NULL,
+        "ProviderPayoutAmount" numeric(18,2) NOT NULL,
+        "Status" smallint NOT NULL,
+        "GatewayReference" character varying(100) NOT NULL,
+        "GatewayPaymentId" character varying(200),
+        "VerificationNotes" character varying(1000),
+        "FailureReason" character varying(1000),
+        "VerifiedByUserId" character varying(450),
+        "ExpiresAt" timestamp with time zone NOT NULL,
+        "VerifiedAt" timestamp with time zone,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_PlatformPaymentIntents" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_PlatformPaymentIntents_ServiceOrders_ServiceOrderId" FOREIGN KEY ("ServiceOrderId") REFERENCES "ServiceOrders" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE TABLE "ProviderPayouts" (
+        "Id" uuid NOT NULL,
+        "ServiceOrderPaymentId" uuid NOT NULL,
+        "ServiceOrderId" uuid NOT NULL,
+        "ProviderId" character varying(450) NOT NULL,
+        "GrossAmount" numeric(18,2) NOT NULL,
+        "PlatformFeeAmount" numeric(18,2) NOT NULL,
+        "PayoutAmount" numeric(18,2) NOT NULL,
+        "Status" smallint NOT NULL,
+        "PayoutReference" character varying(200),
+        "Notes" character varying(1000),
+        "MarkedPaidByUserId" character varying(450),
+        "PaidAt" timestamp with time zone,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_ProviderPayouts" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_ProviderPayouts_ServiceOrderPayments_ServiceOrderPaymentId" FOREIGN KEY ("ServiceOrderPaymentId") REFERENCES "ServiceOrderPayments" ("Id") ON DELETE CASCADE,
+        CONSTRAINT "FK_ProviderPayouts_ServiceOrders_ServiceOrderId" FOREIGN KEY ("ServiceOrderId") REFERENCES "ServiceOrders" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE TABLE "ServiceOrderDisputes" (
+        "Id" uuid NOT NULL,
+        "ServiceOrderId" uuid NOT NULL,
+        "ServiceOrderPaymentId" uuid,
+        "RaisedByUserId" character varying(450) NOT NULL,
+        "AgainstUserId" character varying(450) NOT NULL,
+        "Reason" character varying(1000) NOT NULL,
+        "Status" smallint NOT NULL,
+        "ResolutionNotes" character varying(1000),
+        "ResolvedByUserId" character varying(450),
+        "ResolvedAt" timestamp with time zone,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_ServiceOrderDisputes" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_ServiceOrderDisputes_ServiceOrderPayments_ServiceOrderPayme~" FOREIGN KEY ("ServiceOrderPaymentId") REFERENCES "ServiceOrderPayments" ("Id") ON DELETE SET NULL,
+        CONSTRAINT "FK_ServiceOrderDisputes_ServiceOrders_ServiceOrderId" FOREIGN KEY ("ServiceOrderId") REFERENCES "ServiceOrders" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_UserNotifications_ProviderPayoutId" ON "UserNotifications" ("ProviderPayoutId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_UserNotifications_ServiceOrderDisputeId" ON "UserNotifications" ("ServiceOrderDisputeId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE UNIQUE INDEX "UX_ServiceOrderPayments_PlatformPaymentIntentId" ON "ServiceOrderPayments" ("PlatformPaymentIntentId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_PlatformPaymentIntents_CustomerStatusCreated" ON "PlatformPaymentIntents" ("CustomerId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_PlatformPaymentIntents_OrderStatusCreated" ON "PlatformPaymentIntents" ("ServiceOrderId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE UNIQUE INDEX "UX_PlatformPaymentIntents_GatewayReference" ON "PlatformPaymentIntents" ("GatewayReference");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_ProviderPayouts_ProviderStatusCreated" ON "ProviderPayouts" ("ProviderId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_ProviderPayouts_ServiceOrderId" ON "ProviderPayouts" ("ServiceOrderId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_ProviderPayouts_StatusCreated" ON "ProviderPayouts" ("Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE UNIQUE INDEX "UX_ProviderPayouts_ServiceOrderPaymentId" ON "ProviderPayouts" ("ServiceOrderPaymentId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_ServiceOrderDisputes_OrderStatusCreated" ON "ServiceOrderDisputes" ("ServiceOrderId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_ServiceOrderDisputes_ServiceOrderPaymentId" ON "ServiceOrderDisputes" ("ServiceOrderPaymentId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    CREATE INDEX "IX_ServiceOrderDisputes_StatusCreated" ON "ServiceOrderDisputes" ("Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    ALTER TABLE "ServiceOrderPayments" ADD CONSTRAINT "FK_ServiceOrderPayments_PlatformPaymentIntents_PlatformPayment~" FOREIGN KEY ("PlatformPaymentIntentId") REFERENCES "PlatformPaymentIntents" ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260807121044_AddMarketplaceEconomics') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260807121044_AddMarketplaceEconomics', '9.0.0');
+    END IF;
+END $EF$;
 COMMIT;
 

@@ -119,6 +119,88 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.ToTable("Bids", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.PlatformPaymentIntent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("GatewayPaymentId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("GatewayReference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("PlatformFeeAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<decimal>("ProviderPayoutAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ServiceOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GatewayReference")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PlatformPaymentIntents_GatewayReference");
+
+                    b.HasIndex("CustomerId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_PlatformPaymentIntents_CustomerStatusCreated");
+
+                    b.HasIndex("ServiceOrderId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_PlatformPaymentIntents_OrderStatusCreated");
+
+                    b.ToTable("PlatformPaymentIntents", (string)null);
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductCategory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -197,6 +279,117 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                             Slug = "electronics",
                             SortOrder = 30
                         });
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductDeliveryOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BuyerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("BuyerNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancelledByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeliveryAddress")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("DeliveryCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("DeliveryPhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("DeliveryRecipientName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("DeliveryState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("OutForDeliveryAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReadyForPickupAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SellerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ServiceZoneId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)1);
+
+                    b.Property<decimal>("TotalPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductListingId")
+                        .HasDatabaseName("IX_ProductDeliveryOrders_ProductListingId");
+
+                    b.HasIndex("ServiceZoneId")
+                        .HasDatabaseName("IX_ProductDeliveryOrders_ServiceZoneId");
+
+                    b.HasIndex("BuyerId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_ProductDeliveryOrders_BuyerStatusCreated");
+
+                    b.HasIndex("SellerId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_ProductDeliveryOrders_SellerStatusCreated");
+
+                    b.ToTable("ProductDeliveryOrders", (string)null);
                 });
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductInspectionPrompt", b =>
@@ -353,6 +546,76 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_ProductListings_StatusConditionCategoryZone");
 
                     b.ToTable("ProductListings", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProviderPayout", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("GrossAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("MarkedPaidByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("PayoutAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("PayoutReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("PlatformFeeAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid>("ServiceOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ServiceOrderPaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceOrderId");
+
+                    b.HasIndex("ServiceOrderPaymentId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ProviderPayouts_ServiceOrderPaymentId");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("IX_ProviderPayouts_StatusCreated");
+
+                    b.HasIndex("ProviderId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_ProviderPayouts_ProviderStatusCreated");
+
+                    b.ToTable("ProviderPayouts", (string)null);
                 });
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.RefreshTokenEntity", b =>
@@ -810,6 +1073,66 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.ToTable("ServiceOrderAuditEvents", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrderDispute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgainstUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RaisedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ResolutionNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid>("ServiceOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ServiceOrderPaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceOrderPaymentId");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("IX_ServiceOrderDisputes_StatusCreated");
+
+                    b.HasIndex("ServiceOrderId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_ServiceOrderDisputes_OrderStatusCreated");
+
+                    b.ToTable("ServiceOrderDisputes", (string)null);
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrderMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -879,10 +1202,21 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<decimal?>("PlatformFeeAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("PlatformPaymentIntentId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ProviderId")
                         .IsRequired()
                         .HasMaxLength(450)
                         .HasColumnType("character varying(450)");
+
+                    b.Property<decimal?>("ProviderPayoutAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<DateTime>("RecordedAt")
                         .HasColumnType("timestamp with time zone");
@@ -909,6 +1243,10 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PlatformPaymentIntentId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ServiceOrderPayments_PlatformPaymentIntentId");
 
                     b.HasIndex("ServiceOrderId")
                         .IsUnique()
@@ -1474,8 +1812,17 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<Guid?>("ProductDeliveryOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProviderPayoutId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("ReadAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ServiceOrderDisputeId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("ServiceOrderId")
                         .HasColumnType("uuid");
@@ -1503,6 +1850,15 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ProductDeliveryOrderId")
+                        .HasDatabaseName("IX_UserNotifications_ProductDeliveryOrderId");
+
+                    b.HasIndex("ProviderPayoutId")
+                        .HasDatabaseName("IX_UserNotifications_ProviderPayoutId");
+
+                    b.HasIndex("ServiceOrderDisputeId")
+                        .HasDatabaseName("IX_UserNotifications_ServiceOrderDisputeId");
 
                     b.HasIndex("ServiceOrderId")
                         .HasDatabaseName("IX_UserNotifications_ServiceOrderId");
@@ -1538,6 +1894,44 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("ServiceRequest");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.PlatformPaymentIntent", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
+                        .WithMany("PlatformPaymentIntents")
+                        .HasForeignKey("ServiceOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ServiceOrder");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductDeliveryOrder", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ProductListing", "ProductListing")
+                        .WithMany("DeliveryOrders")
+                        .HasForeignKey("ProductListingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ServiceMarketplace.Domain.Entities.SellerProfile", "SellerProfile")
+                        .WithMany("ProductDeliveryOrders")
+                        .HasForeignKey("SellerId")
+                        .HasPrincipalKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceZone", "ServiceZone")
+                        .WithMany("ProductDeliveryOrders")
+                        .HasForeignKey("ServiceZoneId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("ProductListing");
+
+                    b.Navigation("SellerProfile");
+
+                    b.Navigation("ServiceZone");
                 });
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductInspectionPrompt", b =>
@@ -1576,6 +1970,25 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.Navigation("SellerProfile");
 
                     b.Navigation("ServiceZone");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProviderPayout", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
+                        .WithMany("ProviderPayouts")
+                        .HasForeignKey("ServiceOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrderPayment", "ServiceOrderPayment")
+                        .WithOne("ProviderPayout")
+                        .HasForeignKey("ServiceMarketplace.Domain.Entities.ProviderPayout", "ServiceOrderPaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ServiceOrder");
+
+                    b.Navigation("ServiceOrderPayment");
                 });
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.SellerProfile", b =>
@@ -1632,6 +2045,24 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.Navigation("ServiceOrder");
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrderDispute", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
+                        .WithMany("Disputes")
+                        .HasForeignKey("ServiceOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrderPayment", "ServiceOrderPayment")
+                        .WithMany("Disputes")
+                        .HasForeignKey("ServiceOrderPaymentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("ServiceOrder");
+
+                    b.Navigation("ServiceOrderPayment");
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrderMessage", b =>
                 {
                     b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
@@ -1645,11 +2076,18 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrderPayment", b =>
                 {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.PlatformPaymentIntent", "PlatformPaymentIntent")
+                        .WithMany()
+                        .HasForeignKey("PlatformPaymentIntentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
                         .WithOne("Payment")
                         .HasForeignKey("ServiceMarketplace.Domain.Entities.ServiceOrderPayment", "ServiceOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("PlatformPaymentIntent");
 
                     b.Navigation("ServiceOrder");
                 });
@@ -1756,6 +2194,11 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.Navigation("ProductListings");
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductListing", b =>
+                {
+                    b.Navigation("DeliveryOrders");
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Role", b =>
                 {
                     b.Navigation("UserRoles");
@@ -1763,6 +2206,8 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.SellerProfile", b =>
                 {
+                    b.Navigation("ProductDeliveryOrders");
+
                     b.Navigation("ProductListings");
                 });
 
@@ -1777,11 +2222,24 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                 {
                     b.Navigation("AuditEvents");
 
+                    b.Navigation("Disputes");
+
                     b.Navigation("Messages");
 
                     b.Navigation("Payment");
 
+                    b.Navigation("PlatformPaymentIntents");
+
+                    b.Navigation("ProviderPayouts");
+
                     b.Navigation("Review");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrderPayment", b =>
+                {
+                    b.Navigation("Disputes");
+
+                    b.Navigation("ProviderPayout");
                 });
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServicePackage", b =>
@@ -1798,6 +2256,8 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceZone", b =>
                 {
+                    b.Navigation("ProductDeliveryOrders");
+
                     b.Navigation("ProductListings");
 
                     b.Navigation("ServicePackages");
