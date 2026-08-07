@@ -61,12 +61,27 @@ A full-stack service marketplace platform that connects customers seeking servic
 - PostgreSQL 16+ local instance, Docker container, or cloud database
 - Visual Studio 2022+ or VS Code with C# extensions
 
+### One-command Local Setup
+
+For local development, run the setup script from the repository root. It writes JWT and database settings outside source control.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-dev.ps1
+```
+
+If Docker Desktop is installed and you want the script to create the local PostgreSQL container and apply migrations:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-dev.ps1 -StartPostgresContainer -ApplyMigrations
+```
+
+See `LOCAL_TESTING.md` for troubleshooting and custom PostgreSQL credentials.
+
 ### Configuration
 
 `ServiceMarketplace.API/appsettings.json` intentionally keeps secrets and local connection strings out of source control. Configure them with user secrets for local development:
 
 ```bash
-dotnet user-secrets init --project ServiceMarketplace.API
 dotnet user-secrets set "Jwt:Key" "replace-with-a-strong-32-byte-minimum-secret" --project ServiceMarketplace.API
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=service_marketplace;Username=servicemarketplace;Password=<local-dev-password>" --project ServiceMarketplace.API
 ```

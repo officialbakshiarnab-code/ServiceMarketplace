@@ -28,6 +28,12 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Po
 dotnet user-secrets set "Jwt:Key" "replace-with-a-strong-32-byte-minimum-secret" --project ServiceMarketplace.API
 ```
 
+Or use the local setup script, which generates a strong JWT key and stores both JWT and database settings outside source control:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-dev.ps1 -Password "<local-dev-password>" -ApplyMigrations
+```
+
 Use environment variables for hosted or shared environments. `ServiceMarketplace.API/appsettings.json` intentionally contains placeholders and the API fails fast if the JWT key or connection string is missing.
 
 ## One-Shot Setup SQL
