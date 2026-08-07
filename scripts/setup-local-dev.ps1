@@ -64,6 +64,11 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" $connectionString 
 [Environment]::SetEnvironmentVariable("Jwt__Audience", $JwtAudience, "User")
 [Environment]::SetEnvironmentVariable("ConnectionStrings__DefaultConnection", $connectionString, "User")
 
+$env:Jwt__Key = $jwtKey
+$env:Jwt__Issuer = $JwtIssuer
+$env:Jwt__Audience = $JwtAudience
+$env:ConnectionStrings__DefaultConnection = $connectionString
+
 if ($ApplyMigrations) {
     dotnet ef database update --project $infrastructureProject --startup-project $apiProject
 }
