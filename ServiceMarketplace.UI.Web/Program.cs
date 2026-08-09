@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.JSInterop;
 using ServiceMarketplace.UI.Shared.Admin;
 using ServiceMarketplace.UI.Shared.Auth;
 using ServiceMarketplace.UI.Shared.Configuration;
@@ -96,20 +97,26 @@ builder.Services.AddScoped<AuditLogsApiClient>();
 builder.Services.AddScoped<AdminKpiApiClient>();
 
 // Configure platform-specific services
-builder.Services.AddScoped<ITokenStorage, LocalStorageTokenStorage>();
+builder.Services.AddScoped<ITokenStorage, WebSessionTokenStorage>();
 
 // Role validation services (UI.Shared)
 builder.Services.AddScoped<RoleValidator>();
 
 var host = builder.Build();
 
-// INITIALIZATION: Restore authentication state from storage on app startup
+var jsRuntime = host.Services.GetRequiredService<IJSRuntime>();
+await jsRuntime.InvokeVoidAsync("localStorage.removeItem", "auth_token");
+await jsRuntime.InvokeVoidAsync("localStorage.removeItem", "refresh_token");
+await jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "auth_token");
+await jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "refresh_token");
+
+// INITIALIZATION: Restore authentication state for the current app session
 // This happens before rendering any components, so:
-// 1. Stored JWT token is read from LocalStorage (if exists)
+// 1. Current in-memory JWT token is read if the app session already has one
 // 2. Token is validated and parsed
 // 3. AuthenticationStateProvider notified with restored claims
 // 4. <AuthorizeView> and <AuthorizeRouteView> components get correct auth state
-// 5. User sees their role-appropriate UI immediately without re-login
+// 5. Browser close, reload, or debug restart starts signed out
 var authStateInitializer = host.Services.GetRequiredService<AuthenticationStateInitializer>();
 var authStateProvider = host.Services.GetRequiredService<TokenAuthenticationStateProvider>();
 
