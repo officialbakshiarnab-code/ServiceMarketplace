@@ -57,6 +57,7 @@ public static class MauiProgram
             var config = sp.GetRequiredService<IConfiguration>();
             var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(config);
             var handler = sp.GetRequiredService<AuthorizingHttpClientHandler>();
+            handler.InnerHandler = new HttpClientHandler();
             
             var httpClient = new HttpClient(handler)
             { 

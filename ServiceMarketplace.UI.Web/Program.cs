@@ -42,8 +42,9 @@ builder.Services.AddScoped<AuthorizingHttpClientHandler>();
 builder.Services.AddScoped(sp =>
 {
     var handler = sp.GetRequiredService<AuthorizingHttpClientHandler>();
+    handler.InnerHandler = new HttpClientHandler();
     
-    // Create HttpClient with token handler as the inner handler
+    // Create HttpClient with token handler in front of the platform HTTP transport.
     // Token handler will be called before request is sent to server
     var httpClient = new HttpClient(handler)
     {
