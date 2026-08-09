@@ -1,0 +1,103 @@
+@inject NavigationManager Nav
+
+<div class="landing-page">
+    <section class="landing-hero" aria-label="ServiceMarketplace overview">
+        <div class="landing-hero-overlay">
+            <div class="landing-topline">
+                <span>ServiceMarketplace</span>
+                <div class="landing-auth-actions" aria-label="Account actions">
+                    <button type="button" class="landing-login" @onclick="GoToLogin">
+                        Login
+                    </button>
+                    <button type="button" class="landing-register" @onclick="GoToRegister">
+                        Register
+                    </button>
+                </div>
+            </div>
+
+            <div class="landing-hero-copy">
+                <p class="landing-eyebrow">Kolkata service pilot</p>
+                <h1>ServiceMarketplace</h1>
+                <p class="landing-lead">
+                    Request local services, compare provider bids, book fixed-price packages, buy products, and share contact details only after approval.
+                </p>
+                <div class="landing-primary-actions">
+                    <button type="button" class="landing-primary" @onclick="GoToRegister">
+                        Get Started
+                    </button>
+                    <button type="button" class="landing-secondary" @onclick="GoToLogin">
+                        Login
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="landing-section" aria-label="Marketplace workflows">
+        <div class="landing-section-header">
+            <p class="landing-eyebrow">Built for real local work</p>
+            <h2>One place for customers, providers, sellers, and admins</h2>
+        </div>
+
+        <div class="landing-feature-grid">
+            <article class="landing-feature">
+                <div class="feature-icon" aria-hidden="true">+</div>
+                <h3>Create Requests</h3>
+                <p>Customers describe a job, choose category and zone, then receive competitive bids from providers.</p>
+            </article>
+            <article class="landing-feature">
+                <div class="feature-icon" aria-hidden="true">Rs</div>
+                <h3>Fixed Packages</h3>
+                <p>Providers publish clear service packages so common work can be ordered without back-and-forth.</p>
+            </article>
+            <article class="landing-feature">
+                <div class="feature-icon" aria-hidden="true">ID</div>
+                <h3>Request Contact</h3>
+                <p>Phone and email stay private until an admin approves the contact sharing request.</p>
+            </article>
+            <article class="landing-feature">
+                <div class="feature-icon" aria-hidden="true">OK</div>
+                <h3>Review And Audit</h3>
+                <p>Orders, reviews, notifications, moderation, and audit history support safer marketplace operations.</p>
+            </article>
+        </div>
+    </section>
+
+    <section class="landing-band" aria-label="How it works">
+        <div class="landing-step">
+            <span>1</span>
+            <h3>Post or discover</h3>
+            <p>Create a service request, browse packages, or search public-safe profiles.</p>
+        </div>
+        <div class="landing-step">
+            <span>2</span>
+            <h3>Compare and choose</h3>
+            <p>Review bids, prices, ratings, zones, availability, and service details.</p>
+        </div>
+        <div class="landing-step">
+            <span>3</span>
+            <h3>Book with control</h3>
+            <p>Track orders, payments, contact approval, callbacks, and completion status.</p>
+        </div>
+    </section>
+
+    <section class="landing-final" aria-label="Join ServiceMarketplace">
+        <div>
+            <p class="landing-eyebrow">Ready to try the pilot?</p>
+            <h2>Start as a customer or register as a service provider.</h2>
+        </div>
+        <div class="landing-final-actions">
+            <button type="button" class="landing-primary" @onclick="GoToRegister">
+                Register
+            </button>
+            <button type="button" class="landing-secondary dark" @onclick="GoToLogin">
+                Login
+            </button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private void GoToLogin() => Nav.NavigateTo("/login");
+    private void GoToRegister() => Nav.NavigateTo("/register");
+}

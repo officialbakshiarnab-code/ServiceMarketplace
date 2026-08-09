@@ -1477,5 +1477,73 @@ BEGIN
     VALUES ('20260807121044_AddMarketplaceEconomics', '9.0.0');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    ALTER TABLE "UserNotifications" ADD "ContactRequestId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    CREATE TABLE "ContactRequests" (
+        "Id" uuid NOT NULL,
+        "RequesterUserId" character varying(450) NOT NULL,
+        "TargetUserId" character varying(450) NOT NULL,
+        "TargetProfileType" smallint NOT NULL,
+        "Kind" smallint NOT NULL,
+        "Status" smallint NOT NULL DEFAULT 1,
+        "Message" character varying(1000),
+        "PreferredCallbackAt" timestamp with time zone,
+        "ReviewedByUserId" character varying(450),
+        "ReviewedAt" timestamp with time zone,
+        "ReviewNotes" character varying(1000),
+        "RejectionReason" character varying(1000),
+        "CompletedByUserId" character varying(450),
+        "CompletedAt" timestamp with time zone,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_ContactRequests" PRIMARY KEY ("Id")
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    CREATE INDEX "IX_UserNotifications_ContactRequestId" ON "UserNotifications" ("ContactRequestId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    CREATE INDEX "IX_ContactRequests_KindStatus" ON "ContactRequests" ("Kind", "Status");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    CREATE INDEX "IX_ContactRequests_RequesterStatusCreated" ON "ContactRequests" ("RequesterUserId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    CREATE INDEX "IX_ContactRequests_TargetStatusCreated" ON "ContactRequests" ("TargetUserId", "Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809184129_AddContactRequestsAndProfileDirectory') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260809184129_AddContactRequestsAndProfileDirectory', '9.0.0');
+    END IF;
+END $EF$;
 COMMIT;
 

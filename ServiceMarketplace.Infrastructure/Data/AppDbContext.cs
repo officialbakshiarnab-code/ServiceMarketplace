@@ -37,6 +37,7 @@ public class AppDbContext : DbContext
     public DbSet<ProductInspectionPrompt> ProductInspectionPrompts => Set<ProductInspectionPrompt>();
     public DbSet<ProductListing> ProductListings => Set<ProductListing>();
     public DbSet<ProductDeliveryOrder> ProductDeliveryOrders => Set<ProductDeliveryOrder>();
+    public DbSet<ContactRequest> ContactRequests => Set<ContactRequest>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -287,6 +288,52 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.ServiceOrderDisputeId)
                 .HasDatabaseName("IX_UserNotifications_ServiceOrderDisputeId");
+
+            entity.HasIndex(e => e.ContactRequestId)
+                .HasDatabaseName("IX_UserNotifications_ContactRequestId");
+        });
+
+        builder.Entity<ContactRequest>(entity =>
+        {
+            entity.ToTable("ContactRequests");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.RequesterUserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.TargetUserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.TargetProfileType)
+                .HasConversion<short>()
+                .IsRequired();
+
+            entity.Property(e => e.Kind)
+                .HasConversion<short>()
+                .IsRequired();
+
+            entity.Property(e => e.Status)
+                .HasConversion<short>()
+                .IsRequired()
+                .HasDefaultValue(ContactRequestStatus.PendingAdminReview);
+
+            entity.Property(e => e.Message).HasMaxLength(1000);
+            entity.Property(e => e.ReviewedByUserId).HasMaxLength(450);
+            entity.Property(e => e.ReviewNotes).HasMaxLength(1000);
+            entity.Property(e => e.RejectionReason).HasMaxLength(1000);
+            entity.Property(e => e.CompletedByUserId).HasMaxLength(450);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasIndex(e => new { e.RequesterUserId, e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_ContactRequests_RequesterStatusCreated");
+
+            entity.HasIndex(e => new { e.TargetUserId, e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_ContactRequests_TargetStatusCreated");
+
+            entity.HasIndex(e => new { e.Kind, e.Status })
+                .HasDatabaseName("IX_ContactRequests_KindStatus");
         });
 
         builder.Entity<SellerProfile>(entity =>

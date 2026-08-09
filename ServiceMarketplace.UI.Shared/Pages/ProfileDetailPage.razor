@@ -1,0 +1,165 @@
+@page "/profiles/{ProfileType:int}/{UserId}"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@inject ProfilesApiClient ProfilesClient
+@inject ContactRequestsApiClient ContactClient
+@inject NavigationManager Nav
+
+<PageTitle>Profile Details</PageTitle>
+
+<div class="container py-4 profile-page">
+    <button class="btn btn-link px-0" @onclick="BackToSearch">
+        <i class="bi bi-arrow-left me-1"></i> Back to search
+    </button>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading profile...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else if (_profile != null)
+    {
+        <section class="profile-hero">
+            <div>
+                <span class="profile-type">@_profile.ProfileType</span>
+                <h2>@_profile.DisplayName</h2>
+                @if (!string.IsNullOrWhiteSpace(_profile.BusinessName))
+                {
+                    <p class="profile-business">@_profile.BusinessName</p>
+                }
+                <p>@_profile.Summary</p>
+                <div class="profile-meta">
+                    @if (!string.IsNullOrWhiteSpace(_profile.ServiceCategoryName))
+                    {
+                        <span><i class="bi bi-tools"></i> @_profile.ServiceCategoryName</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_profile.ZoneName))
+                    {
+                        <span><i class="bi bi-geo-alt"></i> @_profile.ZoneName</span>
+                    }
+                    @if (_profile.AverageRating.HasValue)
+                    {
+                        <span><i class="bi bi-star-fill"></i> @_profile.AverageRating.Value.ToString("0.0") rating</span>
+                    }
+                </div>
+            </div>
+            <div class="request-actions">
+                <button class="btn btn-primary" @onclick="() => CreateRequestAsync(ContactRequestKind.ContactDetails)" disabled="@_busy">
+                    <i class="bi bi-person-lines-fill me-1"></i> Request Contact
+                </button>
+                <button class="btn btn-outline-primary" @onclick="() => CreateRequestAsync(ContactRequestKind.Callback)" disabled="@_busy">
+                    <i class="bi bi-telephone-outbound me-1"></i> Request Callback
+                </button>
+                <small>Phone and email stay hidden until admin approval.</small>
+            </div>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(_statusMessage))
+        {
+            <div class="alert alert-info">@_statusMessage</div>
+        }
+
+        @if (_latestRequest != null)
+        {
+            <section class="contact-panel">
+                <h3>Latest Contact Request</h3>
+                <div class="contact-status">
+                    <span>@_latestRequest.Kind</span>
+                    <strong>@_latestRequest.Status</strong>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_latestRequest.ContactEmail) || !string.IsNullOrWhiteSpace(_latestRequest.ContactPhone))
+                {
+                    <div class="contact-reveal">
+                        <span><i class="bi bi-envelope"></i> @_latestRequest.ContactEmail</span>
+                        <span><i class="bi bi-phone"></i> @_latestRequest.ContactPhone</span>
+                    </div>
+                }
+            </section>
+        }
+
+        <section class="profile-details-grid">
+            <div>
+                <h3>Profile Summary</h3>
+                <p>@_profile.Description</p>
+            </div>
+            <div>
+                <h3>Highlights</h3>
+                <ul>
+                    @foreach (var item in _profile.Highlights)
+                    {
+                        <li>@item</li>
+                    }
+                </ul>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter] public int ProfileType { get; set; }
+    [Parameter] public string UserId { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _statusMessage;
+    private ProfileDetailDto? _profile;
+    private ContactRequestDto? _latestRequest;
+
+    private void BackToSearch() => Nav.NavigateTo("/profiles/search");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _profile = await ProfilesClient.GetDetailAsync((ContactProfileType)ProfileType, UserId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CreateRequestAsync(ContactRequestKind kind)
+    {
+        if (_profile == null)
+            return;
+
+        _busy = true;
+        _statusMessage = null;
+
+        try
+        {
+            _latestRequest = await ContactClient.CreateAsync(new CreateContactRequestDto
+            {
+                TargetUserId = _profile.UserId,
+                TargetProfileType = _profile.ProfileType,
+                Kind = kind,
+                Message = kind == ContactRequestKind.Callback
+                    ? $"Callback requested from {_profile.DisplayName}."
+                    : $"Contact details requested from {_profile.DisplayName}.",
+                PreferredCallbackAt = kind == ContactRequestKind.Callback ? DateTime.UtcNow.AddDays(1) : null
+            });
+
+            _statusMessage = $"{kind} request submitted for admin review.";
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

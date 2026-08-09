@@ -24,18 +24,11 @@
             <nav class="flex-column">
                 <!-- Home Link (visible to all authenticated users) -->
                 <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                        <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-                    </NavLink>
+                    <HomeDashboardLink />
                 </div>
 
                 <!-- Role-Based Navigation Links -->
                 <RoleNavLinks />
-
-                <!-- Logout Button (visible to all authenticated users) -->
-                <div class="nav-item px-3 border-top mt-2 pt-2">
-                    <LogoutButton />
-                </div>
             </nav>
         </div>
     </Authorized>

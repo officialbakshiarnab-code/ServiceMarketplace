@@ -1,0 +1,72 @@
+@page "/contact-requests"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@inject ContactRequestsApiClient ContactClient
+
+<PageTitle>Contact Requests</PageTitle>
+
+<div class="container py-4 profile-page">
+    <div class="page-heading">
+        <div>
+            <h2>Contact Requests</h2>
+            <p>Track admin-reviewed contact sharing and callback requests.</p>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="LoadAsync" disabled="@_loading">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading contact requests...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else
+    {
+        <section class="contact-columns">
+            <ContactRequestList Title="Sent" Items="_sent" OnComplete="CompleteAsync" />
+            <ContactRequestList Title="Received" Items="_received" OnComplete="CompleteAsync" />
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private List<ContactRequestDto> _sent = [];
+    private List<ContactRequestDto> _received = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _sent = await ContactClient.GetSentAsync();
+            _received = await ContactClient.GetReceivedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CompleteAsync(Guid id)
+    {
+        await ContactClient.CompleteAsync(id);
+        await LoadAsync();
+    }
+}

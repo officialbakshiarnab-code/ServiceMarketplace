@@ -1,0 +1,18 @@
+<div class="dash-bar-row">
+    <div class="dash-bar-label">
+        <span>@Label</span>
+        <strong>@Value</strong>
+    </div>
+    <div class="dash-bar-track" aria-hidden="true">
+        <div class="dash-bar-fill @ClassName" style="width:@Percent%"></div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public int Value { get; set; }
+    [Parameter] public int Max { get; set; } = 1;
+    [Parameter] public string ClassName { get; set; } = "blue";
+
+    private int Percent => Max <= 0 ? 0 : Math.Clamp((int)Math.Round(Value * 100m / Max), 4, 100);
+}

@@ -109,6 +109,8 @@ public static class MauiProgram
         builder.Services.AddScoped<ProductListingsApiClient>();
         builder.Services.AddScoped<ProductDeliveryOrdersApiClient>();
         builder.Services.AddScoped<MarketplaceSearchApiClient>();
+        builder.Services.AddScoped<ProfilesApiClient>();
+        builder.Services.AddScoped<ContactRequestsApiClient>();
 
         // Configure platform-specific services
         builder.Services.AddScoped<ITokenStorage, MauiTokenStorage>();

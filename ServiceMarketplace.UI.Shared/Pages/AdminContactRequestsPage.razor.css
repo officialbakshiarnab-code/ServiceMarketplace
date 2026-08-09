@@ -1,0 +1,12 @@
+.profile-page { --panel-border: #d6dde8; --panel-muted: #667085; --panel-bg: #fff; }
+.page-heading, .profile-title-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.page-heading { justify-content: space-between; margin-bottom: 1rem; }
+.page-heading h2, .profile-result h3 { margin: 0; }
+.page-heading p, .profile-result p { margin: 0.2rem 0; color: var(--panel-muted); }
+.profile-results { display: grid; gap: 1rem; }
+.profile-result { border: 1px solid var(--panel-border); background: var(--panel-bg); border-radius: 8px; padding: 1rem; display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; gap: 1rem; align-items: center; }
+.profile-icon { width: 3rem; height: 3rem; border-radius: 8px; display: grid; place-items: center; background: #eef4ff; color: #1d4ed8; font-size: 1.5rem; }
+.profile-icon::before { font-family: bootstrap-icons; }
+.profile-type { border: 1px solid #bfd4ff; color: #1d4ed8; border-radius: 999px; padding: 0.15rem 0.55rem; font-size: 0.8rem; font-weight: 700; }
+.review-actions { display: flex; gap: 0.5rem; }
+@media (max-width: 760px) { .profile-result { grid-template-columns: 1fr; align-items: start; } }

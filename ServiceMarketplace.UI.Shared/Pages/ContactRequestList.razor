@@ -1,0 +1,42 @@
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+
+<section class="contact-panel">
+    <h3>@Title</h3>
+    @if (Items.Count == 0)
+    {
+        <p class="text-muted">No contact requests.</p>
+    }
+    else
+    {
+        @foreach (var request in Items)
+        {
+            <article class="contact-row">
+                <div>
+                    <strong>@request.Kind</strong>
+                    <p>@request.RequesterName -> @request.TargetName</p>
+                    <small>@request.CreatedAt.ToLocalTime().ToString("g")</small>
+                </div>
+                <div class="contact-row-status">
+                    <span>@request.Status</span>
+                    @if (!string.IsNullOrWhiteSpace(request.ContactEmail) || !string.IsNullOrWhiteSpace(request.ContactPhone))
+                    {
+                        <small>@request.ContactEmail @request.ContactPhone</small>
+                    }
+                    @if (request.Status == ContactRequestStatus.Approved)
+                    {
+                        <button class="btn btn-sm btn-outline-success" @onclick="() => OnComplete.InvokeAsync(request.Id)">
+                            Complete
+                        </button>
+                    }
+                </div>
+            </article>
+        }
+    }
+</section>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public List<ContactRequestDto> Items { get; set; } = [];
+    [Parameter] public EventCallback<Guid> OnComplete { get; set; }
+}

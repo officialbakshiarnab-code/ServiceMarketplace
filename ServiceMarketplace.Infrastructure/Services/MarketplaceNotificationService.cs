@@ -354,6 +354,91 @@ public sealed class MarketplaceNotificationService(
         await context.SaveChangesAsync();
     }
 
+    public async Task NotifyContactRequestSubmittedAsync(Guid contactRequestId)
+    {
+        var request = await LoadContactRequestAsync(contactRequestId);
+        if (request == null)
+            return;
+
+        AddNotification(
+            request.RequesterUserId,
+            UserNotificationType.ContactRequestSubmitted,
+            "Contact request submitted",
+            "Your contact request is pending admin review.",
+            contactRequestId: request.Id);
+
+        AddNotification(
+            request.TargetUserId,
+            UserNotificationType.ContactRequestSubmitted,
+            "Contact request received",
+            "A marketplace member requested your contact details. Admin review is pending.",
+            contactRequestId: request.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyContactRequestApprovedAsync(Guid contactRequestId)
+    {
+        var request = await LoadContactRequestAsync(contactRequestId);
+        if (request == null)
+            return;
+
+        AddNotification(
+            request.RequesterUserId,
+            UserNotificationType.ContactRequestApproved,
+            "Contact details available",
+            "Admin approved your contact request. Contact details are now available.",
+            contactRequestId: request.Id);
+
+        AddNotification(
+            request.TargetUserId,
+            UserNotificationType.ContactRequestApproved,
+            "Contact request approved",
+            "Admin approved a contact request connected to your profile.",
+            contactRequestId: request.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyContactRequestRejectedAsync(Guid contactRequestId)
+    {
+        var request = await LoadContactRequestAsync(contactRequestId);
+        if (request == null)
+            return;
+
+        AddNotification(
+            request.RequesterUserId,
+            UserNotificationType.ContactRequestRejected,
+            "Contact request rejected",
+            "Admin rejected your contact request.",
+            contactRequestId: request.Id);
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task NotifyCallbackRequestedAsync(Guid contactRequestId)
+    {
+        var request = await LoadContactRequestAsync(contactRequestId);
+        if (request == null)
+            return;
+
+        AddNotification(
+            request.RequesterUserId,
+            UserNotificationType.CallbackRequested,
+            "Callback request submitted",
+            "Your callback request is pending admin review.",
+            contactRequestId: request.Id);
+
+        AddNotification(
+            request.TargetUserId,
+            UserNotificationType.CallbackRequested,
+            "Callback requested",
+            "A marketplace member requested a callback. Admin review is pending.",
+            contactRequestId: request.Id);
+
+        await context.SaveChangesAsync();
+    }
+
     public async Task<List<UserNotificationDto>> GetMineAsync(string userId, bool unreadOnly = false)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -435,6 +520,13 @@ public sealed class MarketplaceNotificationService(
             .FirstOrDefaultAsync(d => d.Id == disputeId);
     }
 
+    private async Task<ContactRequest?> LoadContactRequestAsync(Guid contactRequestId)
+    {
+        return await context.ContactRequests
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == contactRequestId);
+    }
+
     private void AddNotification(
         string userId,
         UserNotificationType type,
@@ -446,7 +538,8 @@ public sealed class MarketplaceNotificationService(
         Guid? serviceOrderMessageId = null,
         Guid? productDeliveryOrderId = null,
         Guid? providerPayoutId = null,
-        Guid? serviceOrderDisputeId = null)
+        Guid? serviceOrderDisputeId = null,
+        Guid? contactRequestId = null)
     {
         context.UserNotifications.Add(new UserNotification
         {
@@ -461,6 +554,7 @@ public sealed class MarketplaceNotificationService(
             ProductDeliveryOrderId = productDeliveryOrderId,
             ProviderPayoutId = providerPayoutId,
             ServiceOrderDisputeId = serviceOrderDisputeId,
+            ContactRequestId = contactRequestId,
             CreatedAt = DateTime.UtcNow
         });
     }
@@ -481,6 +575,7 @@ public sealed class MarketplaceNotificationService(
             ProductDeliveryOrderId = notification.ProductDeliveryOrderId,
             ProviderPayoutId = notification.ProviderPayoutId,
             ServiceOrderDisputeId = notification.ServiceOrderDisputeId,
+            ContactRequestId = notification.ContactRequestId,
             IsRead = notification.IsRead,
             ReadAt = notification.ReadAt,
             CreatedAt = notification.CreatedAt

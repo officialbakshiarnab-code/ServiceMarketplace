@@ -1,5 +1,6 @@
 @page "/register"
 @using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Logging
 @using ServiceMarketplace.UI.Shared.Auth
 @inject AuthApiClient AuthApi
@@ -56,7 +57,10 @@
 
         <div class="mb-3">
             <label class="form-label">Date of Birth</label>
-            <InputDate class="form-control" @bind-Value="_model.DateOfBirth" disabled="@_busy" />
+            <InputDate class="form-control"
+                       @bind-Value="_model.DateOfBirth"
+                       @bind-Value:after="OnDateOfBirthChanged"
+                       disabled="@_busy" />
             <ValidationMessage For="@(() => _model.DateOfBirth)" />
             @if (!string.IsNullOrWhiteSpace(_dobWarning))
             {
@@ -75,14 +79,54 @@
         </div>
 
         <div class="mb-3">
+            <label class="form-label">Confirm Password</label>
+            <input type="password" class="form-control" @bind="_model.ConfirmPassword" placeholder="Confirm password"
+                disabled="@_busy" />
+            <ValidationMessage For="@(() => _model.ConfirmPassword)" />
+        </div>
+
+        <div class="mb-3">
             <label class="form-label">User Type</label>
-            <InputSelect class="form-select" @bind-Value="_model.Role" disabled="@_busy">
+            <InputSelect class="form-select"
+                         @bind-Value="_model.Role"
+                         @bind-Value:after="OnRoleChanged"
+                         disabled="@_busy">
                 <option value="">-- Select a role --</option>
                 <option value="User">User (Request Services)</option>
                 <option value="ServiceProvider">Service Provider (Offer Services - Must be 18+)</option>
             </InputSelect>
             <ValidationMessage For="@(() => _model.Role)" />
         </div>
+
+        @if (IsProviderRegistration)
+        {
+            <section class="border rounded p-3 mb-3 bg-light" aria-label="Provider verification">
+                <h4 class="h6 mb-2">Provider verification</h4>
+                <p class="text-muted mb-3">
+                    Optional during registration. Uploading now helps mark your provider KYC as submitted.
+                </p>
+
+                <div class="mb-2">
+                    <label class="form-label">Government ID / verification document</label>
+                    <InputFile class="form-control"
+                               OnChange="HandleGovernmentIdSelected"
+                               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf"
+                               disabled="@_busy" />
+                    <small class="text-muted d-block mt-1">
+                        Accepted: JPG, PNG, GIF, WebP, or PDF. Maximum size: 5 MB.
+                    </small>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_governmentIdFileError))
+                {
+                    <div class="text-danger small" role="alert">@_governmentIdFileError</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(_governmentIdFileName))
+                {
+                    <div class="text-success small">Selected: @_governmentIdFileName</div>
+                }
+            </section>
+        }
 
         <button type="submit" class="btn btn-primary w-100 mb-2" disabled="@_busy">
             @if (_busy)
@@ -102,12 +146,24 @@
 </div>
 
 @code {
+    private const long MaxGovernmentIdFileSizeBytes = 5 * 1024 * 1024;
+    private static readonly string[] AllowedGovernmentIdExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"];
     private readonly RegisterModel _model = new() { Role = "User" };
     private readonly SubmissionGuard _submissionGuard = new();
     private bool _busy;
     private bool _success;
     private string? _error;
     private string? _dobWarning;
+    private IBrowserFile? _governmentIdImage;
+    private string? _governmentIdFileName;
+    private string? _governmentIdFileError;
+
+    private bool IsProviderRegistration => _model.Role == "ServiceProvider";
+
+    protected override void OnInitialized()
+    {
+        OnDateOfBirthChanged();
+    }
 
     /// <summary>
     /// Handles user registration with age validation:
@@ -149,11 +205,15 @@
                 }
             }
 
-            // NOTE: File validation and upload would happen here in a real implementation
-            // Due to Blazor WebAssembly limitations with streaming large files,
-            // the government ID image upload should be implemented as a separate endpoint
-            // that accepts multipart/form-data AFTER registration succeeds.
-            // This allows users to complete registration even if file upload fails.
+            if (!IsProviderRegistration)
+                ClearGovernmentIdSelection();
+
+            if (!string.IsNullOrWhiteSpace(_governmentIdFileError))
+            {
+                _error = _governmentIdFileError;
+                await _submissionGuard.ResetAsync("register");
+                return;
+            }
             
             // Create request DTO with exact property names/types API expects
             var request = new RegisterRequest
@@ -170,7 +230,7 @@
                 request.Email, request.Role, CalculateAge(_model.DateOfBirth));
 
             // Call AuthApiClient - returns result object (never throws)
-            var result = await AuthApi.RegisterAsync(request);
+            var result = await AuthApi.RegisterAsync(request, IsProviderRegistration ? _governmentIdImage : null);
 
             if (!result.Success)
             {
@@ -227,12 +287,12 @@
         var age = CalculateAge(_model.DateOfBirth);
         if (age < 0)
         {
-            _dobWarning = "Date of birth cannot be in the future";
+            _dobWarning = "Date of birth cannot be in the future.";
             return;
         }
 
         _dobWarning = _model.Role == "ServiceProvider" && age < 18
-            ? $"?? You must be 18+ to register as a Service Provider. You are {age} years old."
+            ? $"You must be 18+ to register as a Service Provider. You are {age} years old."
             : $"Age: {age} years old";
     }
 
@@ -242,7 +302,44 @@
     /// </summary>
     private void OnRoleChanged()
     {
+        if (!IsProviderRegistration)
+            ClearGovernmentIdSelection();
+
         OnDateOfBirthChanged(); // Re-validate age based on new role
+    }
+
+    private void HandleGovernmentIdSelected(InputFileChangeEventArgs args)
+    {
+        _governmentIdImage = null;
+        _governmentIdFileName = null;
+        _governmentIdFileError = null;
+
+        var file = args.File;
+        if (file is null)
+            return;
+
+        var extension = Path.GetExtension(file.Name);
+        if (!AllowedGovernmentIdExtensions.Any(e => e.Equals(extension, StringComparison.OrdinalIgnoreCase)))
+        {
+            _governmentIdFileError = "Please choose a JPG, PNG, GIF, WebP, or PDF file.";
+            return;
+        }
+
+        if (file.Size > MaxGovernmentIdFileSizeBytes)
+        {
+            _governmentIdFileError = "Verification document must be 5 MB or smaller.";
+            return;
+        }
+
+        _governmentIdImage = file;
+        _governmentIdFileName = file.Name;
+    }
+
+    private void ClearGovernmentIdSelection()
+    {
+        _governmentIdImage = null;
+        _governmentIdFileName = null;
+        _governmentIdFileError = null;
     }
 
     private void GoToLogin() => Nav.NavigateTo("/login");
@@ -268,6 +365,10 @@
         [Required(ErrorMessage = "Password is required")]
         [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
         public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Please confirm your password")]
+        [Compare(nameof(Password), ErrorMessage = "Passwords do not match")]
+        public string ConfirmPassword { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Date of birth is required")]
         public DateTime DateOfBirth { get; set; } = DateTime.Today.AddYears(-25); // Default to 25 years old

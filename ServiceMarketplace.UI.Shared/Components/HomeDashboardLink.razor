@@ -1,0 +1,58 @@
+@using Microsoft.AspNetCore.Components.Routing
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.UI.Shared.Auth
+@implements IDisposable
+@inject AuthState AuthState
+@inject NavigationManager Navigation
+
+<NavLink class="nav-link" href="@_homeHref" Match="NavLinkMatch.All">
+    <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+</NavLink>
+
+@code {
+    private string _homeHref = "";
+    private bool _canUseUserMode;
+    private bool _canUseProviderMode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canUseUserMode =
+            await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer) ||
+            await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductBuyer) ||
+            await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductSeller);
+        _canUseProviderMode = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider);
+
+        SetHomeHref(Navigation.Uri);
+        Navigation.LocationChanged += HandleLocationChanged;
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        SetHomeHref(args.Location);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void SetHomeHref(string uri)
+    {
+        var relative = Navigation.ToBaseRelativePath(uri);
+
+        if (relative.StartsWith("provider/", StringComparison.OrdinalIgnoreCase) && _canUseProviderMode)
+        {
+            _homeHref = "/provider/dashboard";
+            return;
+        }
+
+        if (_canUseUserMode)
+        {
+            _homeHref = "/user/dashboard";
+            return;
+        }
+
+        _homeHref = _canUseProviderMode ? "/provider/dashboard" : "";
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
+}

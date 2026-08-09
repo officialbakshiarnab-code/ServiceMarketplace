@@ -17,5 +17,9 @@ public enum UserNotificationType
     PlatformPaymentVerified = 13,
     ServiceOrderDisputeOpened = 14,
     ServiceOrderDisputeResolved = 15,
-    ProviderPayoutCreated = 16
+    ProviderPayoutCreated = 16,
+    ContactRequestSubmitted = 17,
+    ContactRequestApproved = 18,
+    ContactRequestRejected = 19,
+    CallbackRequested = 20
 }

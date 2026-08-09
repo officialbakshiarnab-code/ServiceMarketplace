@@ -1,0 +1,25 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using ServiceMarketplace.UI.Shared.Auth
+@inject AuthRedirector Redirector
+@inject AuthState AuthState
+
+<PageTitle>ServiceMarketplace</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        <p class="text-muted mb-0">Redirecting to your dashboard...</p>
+    </Authorized>
+    <NotAuthorized>
+        <LandingPage />
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        if (await AuthState.IsAuthenticatedAsync())
+        {
+            await Redirector.RedirectToDashboardAsync();
+        }
+    }
+}

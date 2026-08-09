@@ -52,6 +52,23 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
     [Consumes("application/json")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
+        return await RegisterCoreAsync(request);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("register")]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> RegisterMultipart([FromForm] RegisterRequest request)
+    {
+        return await RegisterCoreAsync(request);
+    }
+
+    private async Task<IActionResult> RegisterCoreAsync(RegisterRequest request)
+    {
         try
         {
             if (request == null)

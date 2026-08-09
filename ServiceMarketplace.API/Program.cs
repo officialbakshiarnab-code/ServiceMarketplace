@@ -366,6 +366,8 @@ builder.Services.AddScoped<IProductListingService, ProductListingService>();
 builder.Services.AddScoped<IProductDeliveryOrderService, ProductDeliveryOrderService>();
 builder.Services.AddScoped<IMarketplaceEconomicsService, MarketplaceEconomicsService>();
 builder.Services.AddScoped<IMarketplaceSearchService, MarketplaceSearchService>();
+builder.Services.AddScoped<IProfileDirectoryService, ProfileDirectoryService>();
+builder.Services.AddScoped<IContactRequestService, ContactRequestService>();
 builder.Services.AddScoped<INotificationService, MarketplaceNotificationService>();
 builder.Services.AddScoped<INotificationInboxService, MarketplaceNotificationService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();

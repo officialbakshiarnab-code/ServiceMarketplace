@@ -119,6 +119,82 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.ToTable("Bids", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ContactRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CompletedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("PreferredCallbackAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("RequesterUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("ReviewNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<short>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)1);
+
+                    b.Property<short>("TargetProfileType")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("TargetUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Kind", "Status")
+                        .HasDatabaseName("IX_ContactRequests_KindStatus");
+
+                    b.HasIndex("RequesterUserId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_ContactRequests_RequesterStatusCreated");
+
+                    b.HasIndex("TargetUserId", "Status", "CreatedAt")
+                        .HasDatabaseName("IX_ContactRequests_TargetStatusCreated");
+
+                    b.ToTable("ContactRequests", (string)null);
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.PlatformPaymentIntent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1799,6 +1875,9 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.Property<Guid?>("BidId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ContactRequestId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1850,6 +1929,9 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ContactRequestId")
+                        .HasDatabaseName("IX_UserNotifications_ContactRequestId");
 
                     b.HasIndex("ProductDeliveryOrderId")
                         .HasDatabaseName("IX_UserNotifications_ProductDeliveryOrderId");

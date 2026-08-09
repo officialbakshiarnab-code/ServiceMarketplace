@@ -1,0 +1,188 @@
+@page "/profiles/search"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@inject ProfilesApiClient ProfilesClient
+@inject ServiceCatalogApiClient CatalogClient
+@inject NavigationManager Nav
+
+<PageTitle>Profile Search</PageTitle>
+
+<div class="container py-4 profile-page">
+    <div class="page-heading">
+        <div>
+            <h2>Profile Search</h2>
+            <p>Find providers, sellers, and users without exposing private contact details.</p>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="SearchAsync" disabled="@_loading">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+    </div>
+
+    <section class="filter-panel">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label" for="profileQuery">Name, business, email, category</label>
+                <input id="profileQuery" class="form-control" @bind="_query" @bind:event="oninput" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="profileType">Type</label>
+                <select id="profileType" class="form-select" @bind="_profileType">
+                    <option value="">All</option>
+                    <option value="@((int)ContactProfileType.User)">User</option>
+                    <option value="@((int)ContactProfileType.Provider)">Provider</option>
+                    <option value="@((int)ContactProfileType.Seller)">Seller</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="profileCategory">Category</label>
+                <select id="profileCategory" class="form-select" @bind="_categoryId">
+                    <option value="">All categories</option>
+                    @foreach (var category in _categories)
+                    {
+                        <option value="@category.Id">@category.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="profileZone">Zone</label>
+                <select id="profileZone" class="form-select" @bind="_zoneId">
+                    <option value="">All zones</option>
+                    @foreach (var zone in _zones)
+                    {
+                        <option value="@zone.Id">@zone.DisplayName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-12">
+                <button class="btn btn-primary" @onclick="SearchAsync" disabled="@_loading">
+                    <i class="bi bi-search me-1"></i> Search Profiles
+                </button>
+            </div>
+        </div>
+    </section>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading profiles...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else if (_results.Count == 0)
+    {
+        <section class="empty-state">
+            <i class="bi bi-person-lines-fill"></i>
+            <p>No matching profiles found.</p>
+        </section>
+    }
+    else
+    {
+        <section class="profile-results">
+            @foreach (var item in _results)
+            {
+                <article class="profile-result">
+                    <div class="profile-icon">
+                        <i class="bi @GetIcon(item.ProfileType)" aria-hidden="true"></i>
+                    </div>
+                    <div class="profile-main">
+                        <div class="profile-title-row">
+                            <h3>@item.DisplayName</h3>
+                            <span class="profile-type">@item.ProfileType</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(item.BusinessName))
+                        {
+                            <p class="profile-business">@item.BusinessName</p>
+                        }
+                        <p>@item.Summary</p>
+                        <div class="profile-meta">
+                            @if (!string.IsNullOrWhiteSpace(item.ServiceCategoryName))
+                            {
+                                <span><i class="bi bi-tools"></i> @item.ServiceCategoryName</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(item.ZoneName))
+                            {
+                                <span><i class="bi bi-geo-alt"></i> @item.ZoneName</span>
+                            }
+                            @if (item.AverageRating.HasValue)
+                            {
+                                <span><i class="bi bi-star-fill"></i> @item.AverageRating.Value.ToString("0.0") (@item.ReviewCount)</span>
+                            }
+                            <span><i class="bi bi-box2-heart"></i> @item.ActiveOfferCount offer(s)</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline-primary" @onclick="() => OpenProfile(item)">
+                        <i class="bi bi-person-vcard me-1"></i> View Profile
+                    </button>
+                </article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private string? _query;
+    private string? _profileType;
+    private string? _categoryId;
+    private string? _zoneId;
+    private bool _loading = true;
+    private string? _error;
+    private List<ServiceCategoryDto> _categories = [];
+    private List<ServiceZoneDto> _zones = [];
+    private List<ProfileSearchItemDto> _results = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _categories = await CatalogClient.GetCategoriesAsync();
+            _zones = await CatalogClient.GetZonesAsync();
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _loading = false;
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            var response = await ProfilesClient.SearchAsync(new ProfileSearchRequest
+            {
+                Query = _query,
+                ProfileType = int.TryParse(_profileType, out var type) ? (ContactProfileType)type : null,
+                ServiceCategoryId = Guid.TryParse(_categoryId, out var categoryId) ? categoryId : null,
+                ZoneId = Guid.TryParse(_zoneId, out var zoneId) ? zoneId : null,
+                Take = 30
+            });
+
+            _results = response.Items;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenProfile(ProfileSearchItemDto item)
+    {
+        Nav.NavigateTo($"/profiles/{(int)item.ProfileType}/{item.UserId}");
+    }
+
+    private static string GetIcon(ContactProfileType type) => type switch
+    {
+        ContactProfileType.Provider => "bi-tools",
+        ContactProfileType.Seller => "bi-shop",
+        _ => "bi-person"
+    };
+}

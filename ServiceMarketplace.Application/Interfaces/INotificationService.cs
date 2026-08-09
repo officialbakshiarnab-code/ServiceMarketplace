@@ -19,4 +19,8 @@ public interface INotificationService
     Task NotifyServiceOrderDisputeOpenedAsync(Guid disputeId);
     Task NotifyServiceOrderDisputeResolvedAsync(Guid disputeId);
     Task NotifyProviderPayoutCreatedAsync(Guid payoutId);
+    Task NotifyContactRequestSubmittedAsync(Guid contactRequestId);
+    Task NotifyContactRequestApprovedAsync(Guid contactRequestId);
+    Task NotifyContactRequestRejectedAsync(Guid contactRequestId);
+    Task NotifyCallbackRequestedAsync(Guid contactRequestId);
 }
