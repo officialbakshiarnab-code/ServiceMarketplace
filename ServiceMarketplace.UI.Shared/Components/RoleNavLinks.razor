@@ -1,8 +1,31 @@
-@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
 @using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.UI.Shared.Auth
 @inject AuthState AuthState
+@inject NavigationManager Navigation
+
+<div class="nav-section-label">@ActiveModeLabel</div>
+
+@if (_canUseUserMode && _canUseProviderMode)
+{
+    <div class="nav-mode-switch px-3" @onclick:stopPropagation="true">
+        <button type="button"
+                class="nav-mode-option @GetModeClass(NavMode.User)"
+                aria-pressed="@(_activeMode == NavMode.User)"
+                title="Show customer and buyer tools"
+                @onclick="() => SetMode(NavMode.User)">
+            User
+        </button>
+        <button type="button"
+                class="nav-mode-option @GetModeClass(NavMode.Provider)"
+                aria-pressed="@(_activeMode == NavMode.Provider)"
+                title="Show provider tools"
+                @onclick="() => SetMode(NavMode.Provider)">
+            Provider
+        </button>
+    </div>
+}
 
 <div class="nav-item px-3">
     <NavLink class="nav-link" href="/notifications" Match="NavLinkMatch.Prefix">
@@ -10,80 +33,83 @@
     </NavLink>
 </div>
 
-@if (_hasServiceCustomerCapability)
+@if (_activeMode == NavMode.User)
 {
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/user/create-request" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Create Request
-        </NavLink>
-    </div>
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/user/my-requests" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> My Requests
-        </NavLink>
-    </div>
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/user/service-orders" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-clipboard-check" aria-hidden="true"></span> Service Orders
-        </NavLink>
-    </div>
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/user/service-packages" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-grid" aria-hidden="true"></span> Service Packages
-        </NavLink>
-    </div>
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/marketplace/search" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-search" aria-hidden="true"></span> Search
-        </NavLink>
-    </div>
-}
-
-@if (_hasProductBuyerCapability)
-{
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/products" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-bag" aria-hidden="true"></span> Products
-        </NavLink>
-    </div>
-    @if (!_hasServiceCustomerCapability)
+    @if (_hasServiceCustomerCapability)
     {
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/user/create-request" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Create Request
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/user/my-requests" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> My Requests
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/user/service-orders" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-clipboard-check" aria-hidden="true"></span> Service Orders
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/user/service-packages" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-grid" aria-hidden="true"></span> Service Packages
+            </NavLink>
+        </div>
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="/marketplace/search" Match="NavLinkMatch.Prefix">
                 <span class="bi bi-search" aria-hidden="true"></span> Search
             </NavLink>
         </div>
     }
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/products/orders" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-receipt" aria-hidden="true"></span> Product Orders
-        </NavLink>
-    </div>
+
+    @if (_hasProductBuyerCapability)
+    {
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/products" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-bag" aria-hidden="true"></span> Products
+            </NavLink>
+        </div>
+        @if (!_hasServiceCustomerCapability)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="/marketplace/search" Match="NavLinkMatch.Prefix">
+                    <span class="bi bi-search" aria-hidden="true"></span> Search
+                </NavLink>
+            </div>
+        }
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/products/orders" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-receipt" aria-hidden="true"></span> Product Orders
+            </NavLink>
+        </div>
+    }
+
+    @if (_hasProductSellerCapability)
+    {
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/seller/products" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-box-seam" aria-hidden="true"></span> My Products
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/seller/product-orders" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-truck" aria-hidden="true"></span> Product Delivery
+            </NavLink>
+        </div>
+    }
+    else if (_hasProductBuyerCapability)
+    {
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/account/seller-application" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-shop" aria-hidden="true"></span> Become Seller
+            </NavLink>
+        </div>
+    }
 }
 
-@if (_hasProductSellerCapability)
-{
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/seller/products" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-box-seam" aria-hidden="true"></span> My Products
-        </NavLink>
-    </div>
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/seller/product-orders" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-truck" aria-hidden="true"></span> Product Delivery
-        </NavLink>
-    </div>
-}
-else if (_hasProductBuyerCapability)
-{
-    <div class="nav-item px-3">
-        <NavLink class="nav-link" href="/account/seller-application" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-shop" aria-hidden="true"></span> Become Seller
-        </NavLink>
-    </div>
-}
-
-@if (_hasServiceProviderCapability)
+@if (_activeMode == NavMode.Provider && _hasServiceProviderCapability)
 {
     <div class="nav-item px-3">
         <NavLink class="nav-link" href="/provider/available-requests" Match="NavLinkMatch.Prefix">
@@ -97,7 +123,7 @@ else if (_hasProductBuyerCapability)
     </div>
     <div class="nav-item px-3">
         <NavLink class="nav-link" href="/provider/service-orders" Match="NavLinkMatch.Prefix">
-            <span class="bi bi-clipboard-check" aria-hidden="true"></span> Service Orders
+            <span class="bi bi-clipboard-check" aria-hidden="true"></span> Provider Orders
         </NavLink>
     </div>
     <div class="nav-item px-3">
@@ -109,6 +135,7 @@ else if (_hasProductBuyerCapability)
 
 @if (_isAdmin)
 {
+    <div class="nav-section-label">Admin</div>
     <div class="nav-item px-3">
         <NavLink class="nav-link" href="/admin/seller-applications" Match="NavLinkMatch.Prefix">
             <span class="bi bi-shop-window" aria-hidden="true"></span> Seller Applications
@@ -122,11 +149,22 @@ else if (_hasProductBuyerCapability)
 }
 
 @code {
+    private enum NavMode
+    {
+        User,
+        Provider
+    }
+
     private bool _hasServiceCustomerCapability;
     private bool _hasServiceProviderCapability;
     private bool _hasProductBuyerCapability;
     private bool _hasProductSellerCapability;
+    private bool _canUseUserMode;
+    private bool _canUseProviderMode;
     private bool _isAdmin;
+    private NavMode _activeMode = NavMode.User;
+
+    private string ActiveModeLabel => _activeMode == NavMode.Provider ? "Provider Mode" : "User Mode";
 
     protected override async Task OnInitializedAsync()
     {
@@ -135,5 +173,36 @@ else if (_hasProductBuyerCapability)
         _hasProductBuyerCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductBuyer);
         _hasProductSellerCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductSeller);
         _isAdmin = await AuthState.HasRoleAsync(RoleNames.Admin);
+
+        _canUseUserMode = _hasServiceCustomerCapability || _hasProductBuyerCapability || _hasProductSellerCapability;
+        _canUseProviderMode = _hasServiceProviderCapability;
+
+        _activeMode = GetInitialMode();
     }
+
+    private NavMode GetInitialMode()
+    {
+        var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri);
+
+        if (_canUseProviderMode && relativeUri.StartsWith("provider/", StringComparison.OrdinalIgnoreCase))
+            return NavMode.Provider;
+
+        if (_canUseUserMode)
+            return NavMode.User;
+
+        return _canUseProviderMode ? NavMode.Provider : NavMode.User;
+    }
+
+    private void SetMode(NavMode mode)
+    {
+        if (mode == NavMode.Provider && !_canUseProviderMode)
+            return;
+
+        if (mode == NavMode.User && !_canUseUserMode)
+            return;
+
+        _activeMode = mode;
+    }
+
+    private string GetModeClass(NavMode mode) => _activeMode == mode ? "active" : string.Empty;
 }
