@@ -11,7 +11,8 @@ namespace ServiceMarketplace.Infrastructure.Services;
 public sealed class ServiceOrderService(
     AppDbContext context,
     INotificationService notificationService,
-    IServiceOrderAuditService auditService) : IServiceOrderService
+    IServiceOrderAuditService auditService,
+    IConversationService conversationService) : IServiceOrderService
 {
     public async Task<List<ServiceOrderDto>> GetForCustomerAsync(string customerId)
     {
@@ -67,6 +68,10 @@ public sealed class ServiceOrderService(
             "ServiceOrderStarted",
             fromStatus.ToString(),
             order.Status.ToString());
+        await conversationService.AddServiceOrderSystemMessageAsync(
+            order.Id,
+            "Provider started work on this service order.",
+            "started");
         await notificationService.NotifyServiceOrderStartedAsync(order.Id);
         return await ToDtoAsync(order);
     }
@@ -93,6 +98,10 @@ public sealed class ServiceOrderService(
             "ServiceOrderProviderCompleted",
             fromStatus.ToString(),
             order.Status.ToString());
+        await conversationService.AddServiceOrderSystemMessageAsync(
+            order.Id,
+            "Provider marked the work complete.",
+            "provider-completed");
         await notificationService.NotifyServiceOrderProviderCompletedAsync(order.Id);
         return await ToDtoAsync(order);
     }
@@ -145,6 +154,10 @@ public sealed class ServiceOrderService(
             fromStatus.ToString(),
             order.Status.ToString(),
             $"Payment {payment.Id} released.");
+        await conversationService.AddServiceOrderSystemMessageAsync(
+            order.Id,
+            "Customer confirmed completion. The service order is complete.",
+            "completed");
         await notificationService.NotifyServiceOrderCompletedAsync(order.Id);
         return await ToDtoAsync(order);
     }
@@ -193,6 +206,10 @@ public sealed class ServiceOrderService(
             fromStatus.ToString(),
             order.Status.ToString(),
             reason);
+        await conversationService.AddServiceOrderSystemMessageAsync(
+            order.Id,
+            "This service order was cancelled.",
+            "cancelled");
         await notificationService.NotifyServiceOrderCancelledAsync(order.Id, userId);
         return await ToDtoAsync(order);
     }

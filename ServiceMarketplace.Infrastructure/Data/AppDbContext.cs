@@ -38,6 +38,11 @@ public class AppDbContext : DbContext
     public DbSet<ProductListing> ProductListings => Set<ProductListing>();
     public DbSet<ProductDeliveryOrder> ProductDeliveryOrders => Set<ProductDeliveryOrder>();
     public DbSet<ContactRequest> ContactRequests => Set<ContactRequest>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<ConversationParticipant> ConversationParticipants => Set<ConversationParticipant>();
+    public DbSet<Message> Messages => Set<Message>();
+    public DbSet<MessageReport> MessageReports => Set<MessageReport>();
+    public DbSet<DeviceRegistration> DeviceRegistrations => Set<DeviceRegistration>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -170,6 +175,192 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.Status)
                 .HasDatabaseName("IX_ServiceOrders_Status");
+        });
+
+        builder.Entity<Conversation>(entity =>
+        {
+            entity.ToTable("Conversations");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ContextType)
+                .HasConversion<short>()
+                .IsRequired();
+
+            entity.Property(e => e.Status)
+                .HasConversion<short>()
+                .IsRequired()
+                .HasDefaultValue(ConversationStatus.Active);
+
+            entity.Property(e => e.Subject)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(e => e.RetentionNotes).HasMaxLength(1000);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasOne(e => e.ServiceOrder)
+                .WithOne(o => o.Conversation)
+                .HasForeignKey<Conversation>(e => e.ServiceOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.ServiceOrderId)
+                .IsUnique()
+                .HasDatabaseName("UX_Conversations_ServiceOrderId")
+                .HasFilter("\"ServiceOrderId\" IS NOT NULL");
+
+            entity.HasIndex(e => new { e.ContextType, e.LastMessageAt })
+                .HasDatabaseName("IX_Conversations_ContextLastMessage");
+
+            entity.HasIndex(e => new { e.Status, e.RetainUntil })
+                .HasDatabaseName("IX_Conversations_StatusRetainUntil");
+        });
+
+        builder.Entity<ConversationParticipant>(entity =>
+        {
+            entity.ToTable("ConversationParticipants");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.UserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.ParticipantKind)
+                .HasConversion<short>()
+                .IsRequired();
+
+            entity.Property(e => e.JoinedAt).IsRequired();
+            entity.Property(e => e.IsMuted).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.IsArchived).IsRequired().HasDefaultValue(false);
+
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Participants)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.ConversationId, e.UserId })
+                .IsUnique()
+                .HasDatabaseName("UX_ConversationParticipants_ConversationUser");
+
+            entity.HasIndex(e => new { e.UserId, e.IsArchived, e.ConversationId })
+                .HasDatabaseName("IX_ConversationParticipants_UserArchivedConversation");
+        });
+
+        builder.Entity<Message>(entity =>
+        {
+            entity.ToTable("Messages");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.SenderUserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.Type)
+                .HasConversion<short>()
+                .IsRequired();
+
+            entity.Property(e => e.Body)
+                .IsRequired()
+                .HasMaxLength(4000);
+
+            entity.Property(e => e.ClientMessageId).HasMaxLength(100);
+            entity.Property(e => e.IsHidden).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.HiddenByUserId).HasMaxLength(450);
+            entity.Property(e => e.HiddenReason).HasMaxLength(1000);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.ConversationId, e.CreatedAt, e.Id })
+                .HasDatabaseName("IX_Messages_ConversationCreatedId");
+
+            entity.HasIndex(e => new { e.ConversationId, e.ClientMessageId })
+                .IsUnique()
+                .HasDatabaseName("UX_Messages_ConversationClientMessage")
+                .HasFilter("\"ClientMessageId\" IS NOT NULL");
+        });
+
+        builder.Entity<MessageReport>(entity =>
+        {
+            entity.ToTable("MessageReports");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ReporterUserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.ReportedSenderUserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.Reason)
+                .IsRequired()
+                .HasMaxLength(120);
+
+            entity.Property(e => e.Details).HasMaxLength(1000);
+
+            entity.Property(e => e.Status)
+                .HasConversion<short>()
+                .IsRequired()
+                .HasDefaultValue(MessageReportStatus.PendingReview);
+
+            entity.Property(e => e.ReviewedByUserId).HasMaxLength(450);
+            entity.Property(e => e.ReviewNotes).HasMaxLength(1000);
+            entity.Property(e => e.MessageHidden).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.ConversationRestricted).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasOne(e => e.Conversation)
+                .WithMany()
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Message)
+                .WithMany()
+                .HasForeignKey(e => e.MessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.Status, e.CreatedAt })
+                .HasDatabaseName("IX_MessageReports_StatusCreated");
+
+            entity.HasIndex(e => new { e.ConversationId, e.MessageId })
+                .HasDatabaseName("IX_MessageReports_ConversationMessage");
+
+            entity.HasIndex(e => new { e.MessageId, e.ReporterUserId })
+                .IsUnique()
+                .HasDatabaseName("UX_MessageReports_MessageReporter");
+        });
+
+        builder.Entity<DeviceRegistration>(entity =>
+        {
+            entity.ToTable("DeviceRegistrations");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.UserId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.Platform)
+                .HasConversion<short>()
+                .IsRequired();
+
+            entity.Property(e => e.DeviceToken)
+                .IsRequired()
+                .HasMaxLength(512);
+
+            entity.Property(e => e.DeviceName).HasMaxLength(120);
+            entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
+            entity.Property(e => e.LastSeenAt).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasIndex(e => new { e.UserId, e.IsActive, e.LastSeenAt })
+                .HasDatabaseName("IX_DeviceRegistrations_UserActiveSeen");
+
+            entity.HasIndex(e => new { e.UserId, e.Platform, e.DeviceToken })
+                .IsUnique()
+                .HasDatabaseName("UX_DeviceRegistrations_UserPlatformToken");
         });
 
         builder.Entity<ServicePackage>(entity =>

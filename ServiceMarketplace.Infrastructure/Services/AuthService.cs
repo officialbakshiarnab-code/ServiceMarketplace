@@ -38,6 +38,8 @@ public sealed class AuthService(
         string firstName,
         string lastName,
         DateTime dateOfBirth,
+        string phoneNumber,
+        RegistrationCommercialOnboardingDto? commercialOnboarding = null,
         object? governmentIdImage = null)
     {
         var normalizedRole = RoleConstants.NormalizeRole(role);
@@ -56,12 +58,29 @@ public sealed class AuthService(
             return new AuthRegisterResult(false, ageValidation.Error, null);
 
         var normalizedEmail = NormalizeEmail(email);
+        string normalizedPhone;
+        try
+        {
+            normalizedPhone = NormalizeRequiredPhone(phoneNumber);
+        }
+        catch (ArgumentException ex)
+        {
+            return new AuthRegisterResult(false, ex.Message, null);
+        }
+
         var existing = await dbContext.Users
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.NormalizedEmail == normalizedEmail);
 
         if (existing != null)
             return new AuthRegisterResult(true, null, null);
+
+        var phoneExists = await dbContext.Users
+            .AsNoTracking()
+            .AnyAsync(u => u.NormalizedPhoneNumber == normalizedPhone);
+
+        if (phoneExists)
+            return new AuthRegisterResult(false, "Phone number is already registered.", null);
 
         IDbContextTransaction? tx = null;
         if (dbContext.Database.IsRelational())
@@ -77,8 +96,8 @@ public sealed class AuthService(
                 LastName = lastName.Trim(),
                 DateOfBirth = DateTime.SpecifyKind(dateOfBirth.Date, DateTimeKind.Utc),
                 PasswordHash = HashPassword(password),
-                PhoneNumber = null,
-                NormalizedPhoneNumber = null,
+                PhoneNumber = phoneNumber.Trim(),
+                NormalizedPhoneNumber = normalizedPhone,
                 SecondaryPhoneNumber = null,
                 UserType = userType.Value,
                 CreatedDate = DateTime.UtcNow,
@@ -101,7 +120,8 @@ public sealed class AuthService(
             await dbContext.SaveChangesAsync();
 
             await EnsureUserRolesAsync(user, normalizedRole);
-            await EnsureProviderProfileDraftAsync(user, normalizedRole);
+            await EnsureProviderProfileAsync(user, normalizedRole, commercialOnboarding);
+            await EnsureSellerProfileAsync(user, commercialOnboarding);
             await auditLogService.LogRegistrationAsync(user.Id.ToString(), normalizedRole);
             if (tx != null)
                 await tx.CommitAsync();
@@ -112,6 +132,9 @@ public sealed class AuthService(
         {
             if (tx != null)
                 await tx.RollbackAsync();
+
+            if (ex is ArgumentException)
+                return new AuthRegisterResult(false, ex.Message, null);
 
             logger.LogError(ex, "[AuthService] Registration failed for {Email}", email);
             return new AuthRegisterResult(false, "Registration failed due to a system error.", null);
@@ -239,30 +262,45 @@ public sealed class AuthService(
             ? new[] { RoleConstants.User, RoleConstants.ServiceProvider }
             : new[] { requestedRole };
 
+        var roles = await dbContext.Roles
+            .Where(r => roleNames.Contains(r.Name))
+            .ToListAsync();
+
         foreach (var roleName in roleNames)
         {
-            var role = await dbContext.Roles.FirstOrDefaultAsync(r => r.Name == roleName);
-            if (role == null)
-            {
-                role = new Role
-                {
-                    Name = roleName,
-                    Description = $"{roleName} account role",
-                    CreatedDate = DateTime.UtcNow
-                };
-                dbContext.Roles.Add(role);
-                await dbContext.SaveChangesAsync();
-            }
+            if (roles.Any(r => string.Equals(r.Name, roleName, StringComparison.OrdinalIgnoreCase)))
+                continue;
 
-            var exists = await dbContext.UserRoles.AnyAsync(ur => ur.UserId == user.Id && ur.RoleId == role.Id);
-            if (!exists)
+            var role = new Role
+            {
+                Name = roleName,
+                Description = $"{roleName} account role",
+                CreatedDate = DateTime.UtcNow
+            };
+            roles.Add(role);
+            dbContext.Roles.Add(role);
+        }
+
+        var roleIds = roles.Select(r => r.Id).ToList();
+        var assignedRoleIds = await dbContext.UserRoles
+            .Where(ur => ur.UserId == user.Id && roleIds.Contains(ur.RoleId))
+            .Select(ur => ur.RoleId)
+            .ToListAsync();
+        var assignedRoleIdSet = assignedRoleIds.ToHashSet();
+
+        foreach (var role in roles)
+        {
+            if (!assignedRoleIdSet.Contains(role.Id))
                 dbContext.UserRoles.Add(new ServiceMarketplace.Domain.Entities.UserRole { UserId = user.Id, RoleId = role.Id });
         }
 
         await dbContext.SaveChangesAsync();
     }
 
-    private async Task EnsureProviderProfileDraftAsync(User user, string requestedRole)
+    private async Task EnsureProviderProfileAsync(
+        User user,
+        string requestedRole,
+        RegistrationCommercialOnboardingDto? commercialOnboarding)
     {
         if (requestedRole is not RoleConstants.ServiceProvider and not RoleConstants.Both)
             return;
@@ -271,17 +309,70 @@ public sealed class AuthService(
         if (exists)
             return;
 
+        var provider = commercialOnboarding?.Provider;
+        var business = commercialOnboarding?.Business;
+        var submitForReview = commercialOnboarding?.WantsProvider == true && provider != null;
+        var now = DateTime.UtcNow;
+        var businessName = FirstNonEmpty(business?.TradingName, business?.LegalName);
+
         dbContext.ServiceProviderProfiles.Add(new ServiceProviderProfile
         {
             UserId = user.Id,
             DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
-            Skills = string.Empty,
-            PrimaryCategory = string.Empty,
-            ServiceAreaCity = string.Empty,
-            ServiceAreaState = string.Empty,
-            Status = ProviderApplicationStatus.Draft,
-            IdentityVerificationSubmitted = !string.IsNullOrWhiteSpace(user.GovIdFilePath),
-            CreatedAt = DateTime.UtcNow
+            BusinessName = businessName,
+            Bio = BuildProviderBio(provider, business),
+            Skills = submitForReview ? NormalizeRequired(provider!.Skills, 500, "Provider skills") : string.Empty,
+            PrimaryCategory = submitForReview ? NormalizeRequired(provider!.PrimaryCategory, 150, "Provider service category") : string.Empty,
+            ServiceAreaCity = submitForReview ? NormalizeRequired(provider!.ServiceAreaCity, 100, "Provider service city") : string.Empty,
+            ServiceAreaState = submitForReview ? NormalizeRequired(provider!.ServiceAreaState, 100, "Provider service state") : string.Empty,
+            ServiceAreaZone = NormalizeOptional(provider?.ServiceAreaZone, 100),
+            HourlyRate = submitForReview ? EnsurePositiveRate(provider!.Rate) : 0,
+            Status = submitForReview ? ProviderApplicationStatus.Submitted : ProviderApplicationStatus.Draft,
+            IdentityVerificationSubmitted = submitForReview || !string.IsNullOrWhiteSpace(user.GovIdFilePath),
+            AddressVerificationSubmitted = submitForReview,
+            BackgroundCheckConsent = submitForReview,
+            SubmittedAt = submitForReview ? now : null,
+            CreatedAt = now,
+            UpdatedAt = submitForReview ? now : null
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task EnsureSellerProfileAsync(User user, RegistrationCommercialOnboardingDto? commercialOnboarding)
+    {
+        if (commercialOnboarding?.WantsSeller != true)
+            return;
+
+        var seller = commercialOnboarding.Seller;
+        if (seller == null)
+            return;
+
+        var exists = await dbContext.SellerProfiles.AnyAsync(s => s.UserId == user.Id);
+        if (exists)
+            return;
+
+        var business = commercialOnboarding.Business;
+        var now = DateTime.UtcNow;
+        var businessName = FirstNonEmpty(seller.BusinessName, business?.TradingName, business?.LegalName);
+
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            UserId = user.Id,
+            StoreName = NormalizeRequired(seller.StoreName, 150, "Store name"),
+            BusinessName = NormalizeOptional(businessName, 150),
+            Description = BuildSellerDescription(seller, business),
+            Gstin = NormalizeOptional(FirstNonEmpty(seller.Gstin, business?.Gstin), 30),
+            PickupAddress = NormalizeRequired(seller.PickupAddress, 500, "Pickup address"),
+            City = NormalizeRequired(seller.City, 100, "Seller city"),
+            State = NormalizeRequired(seller.State, 100, "Seller state"),
+            IdentityVerificationSubmitted = true,
+            AddressVerificationSubmitted = true,
+            BusinessVerificationSubmitted = true,
+            Status = SellerApplicationStatus.Submitted,
+            SubmittedAt = now,
+            CreatedAt = now,
+            UpdatedAt = now
         });
 
         await dbContext.SaveChangesAsync();
@@ -299,6 +390,89 @@ public sealed class AuthService(
             return assignedRoles;
 
         return new[] { user.UserType.GetPrimaryRole() };
+    }
+
+    private static string BuildProviderBio(RegistrationProviderDetailsDto? provider, RegistrationBusinessDetailsDto? business)
+    {
+        if (provider == null && business == null)
+            return string.Empty;
+
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(provider?.ProviderType))
+            parts.Add($"Provider type: {provider.ProviderType.Trim()}");
+        if (!string.IsNullOrWhiteSpace(provider?.Profession))
+            parts.Add($"Profession: {provider.Profession.Trim()}");
+        if (provider?.YearsOfExperience is > 0)
+            parts.Add($"Experience: {provider.YearsOfExperience} years");
+        if (!string.IsNullOrWhiteSpace(provider?.PricingType))
+            parts.Add($"Pricing: {provider.PricingType.Trim()}");
+        if (!string.IsNullOrWhiteSpace(provider?.Availability))
+            parts.Add($"Availability: {provider.Availability.Trim()}");
+        if (!string.IsNullOrWhiteSpace(provider?.Languages))
+            parts.Add($"Languages: {provider.Languages.Trim()}");
+        if (!string.IsNullOrWhiteSpace(business?.WebsiteOrDomain))
+            parts.Add($"Business domain: {business.WebsiteOrDomain.Trim()}");
+        if (business?.RequestedSeatLimit is > 0)
+            parts.Add($"Requested seats: {business.RequestedSeatLimit}");
+
+        return string.Join(Environment.NewLine, parts);
+    }
+
+    private static string? BuildSellerDescription(RegistrationSellerDetailsDto seller, RegistrationBusinessDetailsDto? business)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(seller.Description))
+            parts.Add(seller.Description.Trim());
+        if (!string.IsNullOrWhiteSpace(seller.ProductCategories))
+            parts.Add($"Product categories: {seller.ProductCategories.Trim()}");
+        if (!string.IsNullOrWhiteSpace(seller.ProductConditionFocus))
+            parts.Add($"Product condition focus: {seller.ProductConditionFocus.Trim()}");
+        if (!string.IsNullOrWhiteSpace(business?.WebsiteOrDomain))
+            parts.Add($"Business domain: {business.WebsiteOrDomain.Trim()}");
+        if (!string.IsNullOrWhiteSpace(business?.OperatingAddress))
+            parts.Add($"Operating address: {business.OperatingAddress.Trim()}");
+        if (business?.RequestedSeatLimit is > 0)
+            parts.Add($"Requested seats: {business.RequestedSeatLimit}");
+
+        return parts.Count == 0 ? null : Truncate(string.Join(Environment.NewLine, parts), 1000);
+    }
+
+    private static decimal EnsurePositiveRate(decimal rate)
+    {
+        if (rate <= 0)
+            throw new ArgumentException("Provider rate must be greater than zero.");
+
+        return rate;
+    }
+
+    private static string NormalizeRequired(string? value, int maxLength, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"{fieldName} is required.");
+
+        value = value.Trim();
+        if (value.Length > maxLength)
+            throw new ArgumentException($"{fieldName} cannot exceed {maxLength} characters.");
+
+        return value;
+    }
+
+    private static string? NormalizeOptional(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return Truncate(value.Trim(), maxLength);
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        return value.Length <= maxLength ? value : value[..maxLength];
     }
 
     private async Task<string> GenerateAccessTokenAsync(User user, IReadOnlyCollection<string> roles, string sessionId, DateTime expiresAt)
@@ -368,6 +542,18 @@ public sealed class AuthService(
     }
 
     private static string NormalizeEmail(string email) => email.Trim().ToUpperInvariant();
+
+    private static string NormalizeRequiredPhone(string phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+            throw new ArgumentException("Phone number is required.");
+
+        var normalized = NormalizePhone(phone);
+        if (normalized.Length is < 10 or > 15)
+            throw new ArgumentException("Phone number must contain 10 to 15 digits.");
+
+        return normalized;
+    }
 
     private static string NormalizePhone(string phone)
     {

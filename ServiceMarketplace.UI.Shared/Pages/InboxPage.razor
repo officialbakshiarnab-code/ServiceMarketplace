@@ -1,0 +1,167 @@
+@page "/inbox"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Realtime
+@implements IAsyncDisposable
+@inject ConversationsApiClient ConversationsClient
+@inject MessagingRealtimeClient RealtimeClient
+@inject NavigationManager Nav
+
+<PageTitle>Inbox</PageTitle>
+
+<div class="inbox-page">
+    <div class="page-heading-row">
+        <div>
+            <h1>Inbox</h1>
+            <p>Secure service-order conversations after booking or bid acceptance.</p>
+        </div>
+        <div class="inbox-actions">
+            <RealtimeStatusBadge Status="@_connectionStatus" />
+            <button type="button" class="btn btn-outline-primary" @onclick="LoadAsync" disabled="@_loading">Refresh</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else if (_loading)
+    {
+        <div class="content-card">Loading inbox...</div>
+    }
+    else if (_items.Count == 0)
+    {
+        <div class="content-card">
+            <h2>No conversations yet</h2>
+            <p>Chat opens after a service order exists. Open requests and bids stay structured until a provider is selected.</p>
+        </div>
+    }
+    else
+    {
+        <div class="inbox-list">
+            @foreach (var item in _items)
+            {
+                <button type="button" class="inbox-row" @onclick="() => OpenConversation(item.Id)">
+                    <div class="inbox-row-main">
+                        <div class="inbox-title-line">
+                            <strong>@item.Subject</strong>
+                            @if (item.UnreadCount > 0)
+                            {
+                                <span class="unread-pill">@item.UnreadCount</span>
+                            }
+                        </div>
+                        <span class="inbox-participant">@item.OtherParticipantName</span>
+                        <span class="inbox-preview">@GetPreview(item)</span>
+                    </div>
+                    <span class="inbox-time">@FormatTime(item.LastMessageAt)</span>
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ConversationInboxItemDto> _items = [];
+    private bool _loading = true;
+    private string? _error;
+    private string _connectionStatus = "Connecting";
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        RealtimeClient.ConversationUpdated += HandleConversationUpdatedAsync;
+        RealtimeClient.MessageCreated += HandleMessageCreatedAsync;
+        RealtimeClient.UnreadCountChanged += HandleUnreadCountChangedAsync;
+        RealtimeClient.ConnectionStatusChanged += HandleConnectionStatusChangedAsync;
+
+        await RealtimeClient.StartAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _items = await ConversationsClient.GetInboxAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenConversation(Guid conversationId)
+    {
+        Nav.NavigateTo($"/conversations/{conversationId}");
+    }
+
+    private async Task HandleConversationUpdatedAsync(ConversationRealtimeUpdateDto _)
+    {
+        await RefreshFromRealtimeAsync();
+    }
+
+    private async Task HandleMessageCreatedAsync(ConversationRealtimeUpdateDto _)
+    {
+        await RefreshFromRealtimeAsync();
+    }
+
+    private async Task HandleUnreadCountChangedAsync(int _)
+    {
+        await RefreshFromRealtimeAsync();
+    }
+
+    private async Task RefreshFromRealtimeAsync()
+    {
+        if (_disposed)
+            return;
+
+        await InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task HandleConnectionStatusChangedAsync(string status)
+    {
+        if (_disposed)
+            return;
+
+        await InvokeAsync(() =>
+        {
+            _connectionStatus = status;
+            StateHasChanged();
+        });
+    }
+
+    private static string GetPreview(ConversationInboxItemDto item)
+    {
+        return string.IsNullOrWhiteSpace(item.LastMessagePreview)
+            ? "Conversation created"
+            : item.LastMessagePreview;
+    }
+
+    private static string FormatTime(DateTime? value)
+    {
+        if (!value.HasValue)
+            return string.Empty;
+
+        return value.Value.ToLocalTime().ToString("dd MMM, HH:mm");
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        RealtimeClient.ConversationUpdated -= HandleConversationUpdatedAsync;
+        RealtimeClient.MessageCreated -= HandleMessageCreatedAsync;
+        RealtimeClient.UnreadCountChanged -= HandleUnreadCountChangedAsync;
+        RealtimeClient.ConnectionStatusChanged -= HandleConnectionStatusChangedAsync;
+        return ValueTask.CompletedTask;
+    }
+}

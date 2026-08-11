@@ -1,0 +1,322 @@
+@page "/conversations/{ConversationId:guid}"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Realtime
+@implements IAsyncDisposable
+@inject ConversationsApiClient ConversationsClient
+@inject MessageReportsApiClient MessageReportsClient
+@inject MessagingRealtimeClient RealtimeClient
+@inject NavigationManager Nav
+
+<PageTitle>Chat</PageTitle>
+
+<div class="chat-page">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-success">@_status</div>
+    }
+    else if (_loading)
+    {
+        <div class="content-card">Loading conversation...</div>
+    }
+    else if (_conversation != null)
+    {
+        <header class="chat-header">
+            <div>
+                <button type="button" class="btn btn-link p-0 mb-2" @onclick="BackToInbox">Back to inbox</button>
+                <h1>@_conversation.Subject</h1>
+                <p>Secure service-order chat. Contact details are still shared only through approved contact requests.</p>
+            </div>
+            <div class="chat-header-actions">
+                <RealtimeStatusBadge Status="@_connectionStatus" />
+                @if (_conversation.ServiceOrderId.HasValue)
+                {
+                    <button type="button" class="btn btn-outline-primary" @onclick="OpenOrder">Open Order</button>
+                }
+            </div>
+        </header>
+
+        <section class="chat-messages" aria-label="Messages">
+            @if (_nextBefore.HasValue)
+            {
+                <button type="button" class="btn btn-outline-secondary load-older" @onclick="LoadOlderAsync" disabled="@_loadingOlder">
+                    @(_loadingOlder ? "Loading..." : "Load older messages")
+                </button>
+            }
+
+            @foreach (var message in _messages)
+            {
+                <article class="message-row @(message.Type == MessageType.System ? "system" : message.IsMine ? "mine" : "theirs") @(message.IsHidden ? "hidden" : string.Empty)">
+                    @if (message.Type == MessageType.System)
+                    {
+                        <span>@message.Body</span>
+                    }
+                    else
+                    {
+                        <div class="message-bubble">
+                            <strong>@(message.IsMine ? "You" : message.SenderDisplayName)</strong>
+                            <p>@message.Body</p>
+                            <time>@message.CreatedAt.ToLocalTime().ToString("dd MMM, HH:mm")</time>
+                            @if (!message.IsMine && !message.IsHidden)
+                            {
+                                <button type="button"
+                                        class="report-message-button"
+                                        @onclick="() => StartReport(message)">
+                                    Report
+                                </button>
+                            }
+                        </div>
+                    }
+                </article>
+            }
+        </section>
+
+        @if (_reportingMessage != null)
+        {
+            <section class="report-panel" aria-label="Report message">
+                <div>
+                    <strong>Report message</strong>
+                    <p>Send this message to admin review. The other participant is not notified.</p>
+                </div>
+                <InputText class="form-control" @bind-Value="_reportReason" placeholder="Reason, for example harassment or unsafe content" />
+                <InputTextArea class="form-control" rows="2" @bind-Value="_reportDetails" placeholder="Optional details" />
+                <div class="report-panel-actions">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelReport" disabled="@_reportBusy">Cancel</button>
+                    <button type="button" class="btn btn-warning" @onclick="SubmitReportAsync" disabled="@_reportBusy || string.IsNullOrWhiteSpace(_reportReason)">
+                        @(_reportBusy ? "Submitting..." : "Submit Report")
+                    </button>
+                </div>
+            </section>
+        }
+
+        <EditForm Model="_composer" OnValidSubmit="SendAsync" class="chat-composer">
+            <InputTextArea class="form-control" rows="2" maxlength="4000" @bind-Value="_composer.Body" placeholder="Write a message" disabled="@_sending" />
+            <button type="submit" class="btn btn-primary" disabled="@_sending || string.IsNullOrWhiteSpace(_composer.Body)">
+                @(_sending ? "Sending..." : "Send")
+            </button>
+        </EditForm>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Guid ConversationId { get; set; }
+
+    private ConversationDetailDto? _conversation;
+    private List<ConversationMessageDto> _messages = [];
+    private DateTime? _nextBefore;
+    private bool _loading = true;
+    private bool _loadingOlder;
+    private bool _sending;
+    private bool _reportBusy;
+    private string? _error;
+    private string? _status;
+    private string _connectionStatus = "Connecting";
+    private bool _disposed;
+    private ConversationMessageDto? _reportingMessage;
+    private string _reportReason = string.Empty;
+    private string? _reportDetails;
+    private readonly ComposerModel _composer = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        RealtimeClient.MessageCreated += HandleMessageCreatedAsync;
+        RealtimeClient.ConversationUpdated += HandleConversationUpdatedAsync;
+        RealtimeClient.ConnectionStatusChanged += HandleConnectionStatusChangedAsync;
+        await RealtimeClient.StartAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _conversation = await ConversationsClient.GetAsync(ConversationId);
+            var page = await ConversationsClient.GetMessagesAsync(ConversationId);
+            _messages = page.Items.ToList();
+            _nextBefore = page.NextBefore;
+            await ConversationsClient.MarkReadAsync(ConversationId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReloadMessagesAsync(bool markRead = true)
+    {
+        var page = await ConversationsClient.GetMessagesAsync(ConversationId);
+        _messages = page.Items.ToList();
+        _nextBefore = page.NextBefore;
+
+        if (markRead)
+            await ConversationsClient.MarkReadAsync(ConversationId);
+    }
+
+    private async Task LoadOlderAsync()
+    {
+        if (!_nextBefore.HasValue)
+            return;
+
+        _loadingOlder = true;
+        try
+        {
+            var page = await ConversationsClient.GetMessagesAsync(ConversationId, _nextBefore);
+            _messages.InsertRange(0, page.Items);
+            _nextBefore = page.NextBefore;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loadingOlder = false;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_composer.Body))
+            return;
+
+        _sending = true;
+        _error = null;
+        _status = null;
+
+        try
+        {
+            var sent = await ConversationsClient.SendAsync(ConversationId, _composer.Body);
+            _composer.Body = string.Empty;
+            if (!_messages.Any(m => m.Id == sent.Id))
+                _messages.Add(sent);
+
+            await ConversationsClient.MarkReadAsync(ConversationId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private void OpenOrder()
+    {
+        if (_conversation?.ServiceOrderId is Guid orderId)
+            Nav.NavigateTo($"/user/service-orders?orderId={orderId}");
+    }
+
+    private void BackToInbox()
+    {
+        Nav.NavigateTo("/inbox");
+    }
+
+    private void StartReport(ConversationMessageDto message)
+    {
+        _error = null;
+        _status = null;
+        _reportingMessage = message;
+        _reportReason = string.Empty;
+        _reportDetails = null;
+    }
+
+    private void CancelReport()
+    {
+        _reportingMessage = null;
+        _reportReason = string.Empty;
+        _reportDetails = null;
+    }
+
+    private async Task SubmitReportAsync()
+    {
+        if (_reportingMessage == null || string.IsNullOrWhiteSpace(_reportReason))
+            return;
+
+        _reportBusy = true;
+        _error = null;
+        _status = null;
+
+        try
+        {
+            await MessageReportsClient.ReportAsync(ConversationId, _reportingMessage.Id, new CreateMessageReportDto
+            {
+                Reason = _reportReason,
+                Details = _reportDetails
+            });
+
+            _status = "Message report submitted for admin review.";
+            CancelReport();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _reportBusy = false;
+        }
+    }
+
+    private async Task HandleMessageCreatedAsync(ConversationRealtimeUpdateDto update)
+    {
+        if (_disposed || update.ConversationId != ConversationId)
+            return;
+
+        await InvokeAsync(async () =>
+        {
+            await ReloadMessagesAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task HandleConversationUpdatedAsync(ConversationRealtimeUpdateDto update)
+    {
+        if (_disposed || update.ConversationId != ConversationId)
+            return;
+
+        await InvokeAsync(async () =>
+        {
+            _conversation = await ConversationsClient.GetAsync(ConversationId);
+            StateHasChanged();
+        });
+    }
+
+    private async Task HandleConnectionStatusChangedAsync(string status)
+    {
+        if (_disposed)
+            return;
+
+        await InvokeAsync(() =>
+        {
+            _connectionStatus = status;
+            StateHasChanged();
+        });
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        RealtimeClient.MessageCreated -= HandleMessageCreatedAsync;
+        RealtimeClient.ConversationUpdated -= HandleConversationUpdatedAsync;
+        RealtimeClient.ConnectionStatusChanged -= HandleConnectionStatusChangedAsync;
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed class ComposerModel
+    {
+        public string Body { get; set; } = string.Empty;
+    }
+}

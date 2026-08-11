@@ -217,7 +217,8 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
             { new StringContent(request.FirstName), nameof(RegisterRequest.FirstName) },
             { new StringContent(request.LastName), nameof(RegisterRequest.LastName) },
             { new StringContent(request.DateOfBirth.ToString("yyyy-MM-dd")), nameof(RegisterRequest.DateOfBirth) },
-            { new StringContent(request.Role), nameof(RegisterRequest.Role) }
+            { new StringContent(request.Role), nameof(RegisterRequest.Role) },
+            { new StringContent(request.PhoneNumber), nameof(RegisterRequest.PhoneNumber) }
         };
 
         var fileContent = new StreamContent(governmentIdImage.OpenReadStream(MaxGovernmentIdFileSizeBytes));

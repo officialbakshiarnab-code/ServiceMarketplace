@@ -2,6 +2,28 @@ html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+:root {
+    --app-bg: #f7fafc;
+    --app-surface: #ffffff;
+    --app-surface-muted: #f3f7fb;
+    --app-header-bg: #eef6ff;
+    --app-footer-bg: linear-gradient(90deg, #e4eef9 0%, #f1f7fd 58%, #e8f5ef 100%);
+    --app-border: #d8e2ef;
+    --app-border-strong: #b9cbe0;
+    --app-text: #101828;
+    --app-text-muted: #5d6b82;
+    --app-primary: #1f5bd8;
+    --app-primary-soft: #e9f2ff;
+    --app-footer-height: 6.5rem;
+    --app-footer-height-mobile: 8.75rem;
+    --app-topbar-height: 3.5rem;
+}
+
+body {
+    background: var(--app-bg);
+    color: var(--app-text);
+}
+
 h1:focus {
     outline: none;
 }

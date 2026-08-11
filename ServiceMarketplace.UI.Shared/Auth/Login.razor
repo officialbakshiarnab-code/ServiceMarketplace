@@ -5,6 +5,7 @@
 @inject AuthApiClient AuthApi
 @inject TokenAuthenticationStateProvider AuthStateProvider
 @inject AuthRedirector Redirector
+@inject IRegistrationIntentStorage IntentStorage
 @inject NavigationManager Nav
 @inject ILogger<Login> Logger
 
@@ -130,18 +131,41 @@
             // This guarantees that Redirector.RedirectToDashboardAsync() will read the updated auth state
             await Task.Delay(50);
 
-            // Reads all role claims from JWT and navigates to appropriate dashboard
-            // Logic:
-            // - If user has BOTH User and ServiceProvider roles → /provider/dashboard (default to Provider)
-            // - If user has ServiceProvider role only → /provider/dashboard
-            // - If user has User role only → /user/dashboard
-            // - If user has no roles → /user/dashboard (safe default)
-            await Redirector.RedirectToDashboardAsync();
+            if (!await RedirectToRegistrationIntentAsync())
+                await Redirector.RedirectToDashboardAsync();
         }
         finally
         {
             _busy = false;
         }
+    }
+
+    private async Task<bool> RedirectToRegistrationIntentAsync()
+    {
+        var intent = await IntentStorage.GetAsync();
+        if (intent == null)
+            return false;
+
+        await IntentStorage.ClearAsync();
+
+        if ((DateTime.UtcNow - intent.CreatedAt) > TimeSpan.FromMinutes(30))
+            return false;
+
+        if (intent.WantsProvider)
+        {
+            Logger.LogInformation("[Login] Redirecting to provider application from registration intent.");
+            Nav.NavigateTo("/account/provider-application", forceLoad: false);
+            return true;
+        }
+
+        if (intent.WantsSeller)
+        {
+            Logger.LogInformation("[Login] Redirecting to seller application from registration intent.");
+            Nav.NavigateTo("/account/seller-application", forceLoad: false);
+            return true;
+        }
+
+        return false;
     }
 
     private void GoToRegister() => Nav.NavigateTo("/register");

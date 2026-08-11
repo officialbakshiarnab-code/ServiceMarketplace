@@ -1,5 +1,7 @@
 using ServiceMarketplace.API.Models.Auth;
 using ServiceMarketplace.Application.Constants;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ServiceMarketplace.API.Tests.Builders;
 
@@ -15,6 +17,7 @@ public sealed class AuthRequestBuilder
     private string _firstName = "Test";
     private string _lastName = "User";
     private DateTime _dateOfBirth = DateTime.UtcNow.AddYears(-25);
+    private string? _phoneNumber;
 
     public AuthRequestBuilder WithEmail(string email)
     {
@@ -31,6 +34,12 @@ public sealed class AuthRequestBuilder
     public AuthRequestBuilder WithRole(string role)
     {
         _role = role;
+        return this;
+    }
+
+    public AuthRequestBuilder WithPhoneNumber(string phoneNumber)
+    {
+        _phoneNumber = phoneNumber;
         return this;
     }
 
@@ -55,7 +64,8 @@ public sealed class AuthRequestBuilder
             Role = _role,
             FirstName = _firstName,
             LastName = _lastName,
-            DateOfBirth = _dateOfBirth
+            DateOfBirth = _dateOfBirth,
+            PhoneNumber = _phoneNumber ?? CreatePhoneNumber(_email)
         };
     }
 
@@ -82,5 +92,12 @@ public sealed class AuthRequestBuilder
         return new AuthRequestBuilder()
             .WithEmail(email)
             .AsServiceProvider();
+    }
+
+    private static string CreatePhoneNumber(string email)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(email.ToUpperInvariant()));
+        var value = (ulong)BitConverter.ToUInt32(hash, 0) % 9_000_000_000UL;
+        return $"9{value + 1_000_000_000UL}";
     }
 }

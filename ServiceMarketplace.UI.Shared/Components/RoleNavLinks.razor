@@ -38,6 +38,11 @@
         <span class="bi bi-telephone-outbound" aria-hidden="true"></span> Contact Requests
     </NavLink>
 </div>
+<div class="nav-item px-3">
+    <NavLink class="nav-link" href="/inbox" Match="NavLinkMatch.Prefix">
+        <span class="bi bi-chat-dots" aria-hidden="true"></span> Inbox
+    </NavLink>
+</div>
 
 @if (_activeMode == NavMode.User)
 {
@@ -150,6 +155,11 @@
     <div class="nav-item px-3">
         <NavLink class="nav-link" href="/admin/order-reviews" Match="NavLinkMatch.Prefix">
             <span class="bi bi-shield-check" aria-hidden="true"></span> Review Moderation
+        </NavLink>
+    </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link" href="/admin/message-reports" Match="NavLinkMatch.Prefix">
+            <span class="bi bi-flag" aria-hidden="true"></span> Message Reports
         </NavLink>
     </div>
     <div class="nav-item px-3">

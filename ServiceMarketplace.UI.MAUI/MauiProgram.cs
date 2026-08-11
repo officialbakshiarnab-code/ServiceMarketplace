@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using ServiceMarketplace.UI.Shared.Auth;
 using ServiceMarketplace.UI.Shared.Configuration;
+using ServiceMarketplace.UI.Shared.Realtime;
 using ServiceMarketplace.UI.Shared.Requests;
 using ServiceMarketplace.UI.MAUI.Services;
 using Microsoft.Extensions.Configuration;
@@ -87,6 +88,7 @@ public static class MauiProgram
             sp.GetRequiredService<TokenAuthenticationStateProvider>());
         builder.Services.AddScoped<AuthRedirector>();
         builder.Services.AddScoped<AuthState>();
+        builder.Services.AddScoped<IRegistrationIntentStorage, MemoryRegistrationIntentStorage>();
 
         // Configure auth state initialization
         builder.Services.AddScoped<AuthenticationStateInitializer>();
@@ -111,6 +113,9 @@ public static class MauiProgram
         builder.Services.AddScoped<MarketplaceSearchApiClient>();
         builder.Services.AddScoped<ProfilesApiClient>();
         builder.Services.AddScoped<ContactRequestsApiClient>();
+        builder.Services.AddScoped<ConversationsApiClient>();
+        builder.Services.AddScoped<MessageReportsApiClient>();
+        builder.Services.AddScoped<MessagingRealtimeClient>();
 
         // Configure platform-specific services
         builder.Services.AddScoped<ITokenStorage, MauiTokenStorage>();

@@ -101,6 +101,12 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 return BadRequest(new { error = "Last name is required" });
             }
 
+            if (string.IsNullOrWhiteSpace(request.PhoneNumber))
+            {
+                logger.LogWarning("[AuthController] Register: Phone number is empty for {Email}", request.Email);
+                return BadRequest(new { error = "Phone number is required" });
+            }
+
             if (!RoleConstants.IsPublicRegistrationRole(request.Role))
             {
                 logger.LogWarning("[AuthController] Register: Role is not allowed for public registration: {Role}. Public roles: {ValidRoles}",
@@ -126,6 +132,8 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
                 request.FirstName,
                 request.LastName,
                 request.DateOfBirth,
+                request.PhoneNumber,
+                MapCommercialOnboarding(request.CommercialOnboarding),
                 request.GovernmentIdImage);
             
             if (!result.Succeeded)
@@ -163,6 +171,62 @@ public class AuthController(IAuthService authService, ILogger<AuthController> lo
             logger.LogError(ex, "[AuthController] Register: Unexpected error during registration for {Email}", request?.Email);
             return BadRequest(new { error = "An error occurred during registration. Please try again later." });
         }
+    }
+
+    private static RegistrationCommercialOnboardingDto? MapCommercialOnboarding(RegistrationCommercialOnboardingRequest? request)
+    {
+        if (request == null)
+            return null;
+
+        return new RegistrationCommercialOnboardingDto
+        {
+            WantsProvider = request.WantsProvider,
+            WantsSeller = request.WantsSeller,
+            Business = request.Business == null
+                ? null
+                : new RegistrationBusinessDetailsDto
+                {
+                    LegalName = request.Business.LegalName,
+                    TradingName = request.Business.TradingName,
+                    BusinessType = request.Business.BusinessType,
+                    Gstin = request.Business.Gstin,
+                    WebsiteOrDomain = request.Business.WebsiteOrDomain,
+                    RegisteredAddress = request.Business.RegisteredAddress,
+                    OperatingAddress = request.Business.OperatingAddress,
+                    RequestedSeatLimit = request.Business.RequestedSeatLimit
+                },
+            Provider = request.Provider == null
+                ? null
+                : new RegistrationProviderDetailsDto
+                {
+                    ProviderType = request.Provider.ProviderType,
+                    Skills = request.Provider.Skills,
+                    Profession = request.Provider.Profession,
+                    YearsOfExperience = request.Provider.YearsOfExperience,
+                    PrimaryCategory = request.Provider.PrimaryCategory,
+                    ServiceAreaCity = request.Provider.ServiceAreaCity,
+                    ServiceAreaState = request.Provider.ServiceAreaState,
+                    ServiceAreaZone = request.Provider.ServiceAreaZone,
+                    PricingType = request.Provider.PricingType,
+                    Rate = request.Provider.Rate,
+                    Availability = request.Provider.Availability,
+                    Languages = request.Provider.Languages
+                },
+            Seller = request.Seller == null
+                ? null
+                : new RegistrationSellerDetailsDto
+                {
+                    StoreName = request.Seller.StoreName,
+                    BusinessName = request.Seller.BusinessName,
+                    Gstin = request.Seller.Gstin,
+                    ProductCategories = request.Seller.ProductCategories,
+                    ProductConditionFocus = request.Seller.ProductConditionFocus,
+                    PickupAddress = request.Seller.PickupAddress,
+                    City = request.Seller.City,
+                    State = request.Seller.State,
+                    Description = request.Seller.Description
+                }
+        };
     }
 
     /// <summary>

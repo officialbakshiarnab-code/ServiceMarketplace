@@ -15,15 +15,18 @@ public class ServiceRequestService : IServiceRequestService
     private readonly AppDbContext _context;
     private readonly INotificationService _notificationService;
     private readonly IServiceOrderAuditService _auditService;
+    private readonly IConversationService _conversationService;
 
     public ServiceRequestService(
         AppDbContext context,
         INotificationService notificationService,
-        IServiceOrderAuditService auditService)
+        IServiceOrderAuditService auditService,
+        IConversationService conversationService)
     {
         _context = context;
         _notificationService = notificationService;
         _auditService = auditService;
+        _conversationService = conversationService;
     }
 
     public async Task<Guid> CreateAsync(CreateServiceRequestDto dto, string userId)
@@ -444,6 +447,10 @@ public class ServiceRequestService : IServiceRequestService
             null,
             order.Status.ToString(),
             $"Accepted bid {selectedBid.Id}.");
+        await _conversationService.EnsureServiceOrderConversationAsync(
+            order.Id,
+            "Order confirmed. You can now use this secure service-order chat.",
+            $"service-order:{order.Id:N}:created");
         await _notificationService.NotifyBidAcceptedAsync(selectedBid.Id);
         await _notificationService.NotifyServiceOrderCreatedAsync(order.Id);
     }

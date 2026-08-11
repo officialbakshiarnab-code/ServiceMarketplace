@@ -5,6 +5,7 @@ using Microsoft.JSInterop;
 using ServiceMarketplace.UI.Shared.Admin;
 using ServiceMarketplace.UI.Shared.Auth;
 using ServiceMarketplace.UI.Shared.Configuration;
+using ServiceMarketplace.UI.Shared.Realtime;
 using ServiceMarketplace.UI.Shared.Requests;
 using ServiceMarketplace.UI.Web.Services;
 using ServiceMarketplace.UI.Web;
@@ -68,6 +69,7 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
     sp.GetRequiredService<TokenAuthenticationStateProvider>());
 builder.Services.AddScoped<AuthRedirector>();
 builder.Services.AddScoped<AuthState>();
+builder.Services.AddScoped<IRegistrationIntentStorage, MemoryRegistrationIntentStorage>();
 
 // Configure new auth state management services
 builder.Services.AddScoped<AuthenticationStateInitializer>();
@@ -95,6 +97,9 @@ builder.Services.AddScoped<ProductDeliveryOrdersApiClient>();
 builder.Services.AddScoped<MarketplaceSearchApiClient>();
 builder.Services.AddScoped<ProfilesApiClient>();
 builder.Services.AddScoped<ContactRequestsApiClient>();
+builder.Services.AddScoped<ConversationsApiClient>();
+builder.Services.AddScoped<MessageReportsApiClient>();
+builder.Services.AddScoped<MessagingRealtimeClient>();
 builder.Services.AddScoped<AuditLogsApiClient>();
 builder.Services.AddScoped<AdminKpiApiClient>();
 

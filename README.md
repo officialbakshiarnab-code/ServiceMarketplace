@@ -77,6 +77,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-dev.ps1 -StartPos
 
 See `LOCAL_TESTING.md` for troubleshooting and custom PostgreSQL credentials.
 
+To start both the API and Web UI after setup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-dev.ps1
+```
+
+The Web UI runs at `https://localhost:7241` and calls the API at `https://localhost:7147`.
+
 ### Configuration
 
 `ServiceMarketplace.API/appsettings.json` intentionally keeps secrets and local connection strings out of source control. Configure them with user secrets for local development:

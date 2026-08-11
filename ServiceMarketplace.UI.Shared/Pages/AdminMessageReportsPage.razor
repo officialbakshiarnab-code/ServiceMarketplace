@@ -1,0 +1,208 @@
+@page "/admin/message-reports"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject MessageReportsApiClient ReportsClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<PageTitle>Message Reports - Admin</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="mb-0">Message Reports</h2>
+            <p class="text-muted mb-0">Review participant-reported chat messages.</p>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadAsync" disabled="@_loading">Refresh</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (_reports.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No message reports.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Message</th>
+                        <th>Reporter</th>
+                        <th>Reason</th>
+                        <th>Status</th>
+                        <th>Review Notes</th>
+                        <th class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var report in _reports)
+                    {
+                        <tr>
+                            <td>
+                                <div><strong>@report.ConversationSubject</strong></div>
+                                <div class="small text-muted">@report.MessagePreview</div>
+                                <div class="small text-muted">@report.CreatedAt.ToLocalTime().ToString("g")</div>
+                            </td>
+                            <td>
+                                <div>@report.ReporterName</div>
+                                <div class="small text-muted">Reported: @report.ReportedSenderName</div>
+                            </td>
+                            <td>
+                                <div>@report.Reason</div>
+                                @if (!string.IsNullOrWhiteSpace(report.Details))
+                                {
+                                    <div class="small text-muted">@report.Details</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @GetStatusClass(report.Status)">@ToStatusLabel(report.Status)</span>
+                                @if (report.MessageHidden)
+                                {
+                                    <div class="small text-danger">Message hidden</div>
+                                }
+                                @if (report.ConversationRestricted)
+                                {
+                                    <div class="small text-danger">Chat restricted</div>
+                                }
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm"
+                                       value="@GetNotes(report.Id, report.ReviewNotes)"
+                                       @oninput="e => SetNotes(report.Id, e.Value?.ToString())"
+                                       placeholder="Review notes" />
+                            </td>
+                            <td class="text-end">
+                                @if (report.Status == MessageReportStatus.PendingReview)
+                                {
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-secondary" @onclick="() => ReviewAsync(report, MessageReportStatus.ReviewedNoAction)" disabled="@_busy">No Action</button>
+                                        <button class="btn btn-warning" @onclick="() => ReviewAsync(report, MessageReportStatus.ActionTaken)" disabled="@_busy">Action Taken</button>
+                                        <button class="btn btn-outline-warning" @onclick="() => ReviewAsync(report, MessageReportStatus.ActionTaken, hideMessage: true)" disabled="@_busy">Hide Message</button>
+                                        <button class="btn btn-outline-danger" @onclick="() => ReviewAsync(report, MessageReportStatus.ActionTaken, hideMessage: true, restrictConversation: true)" disabled="@_busy">Restrict Chat</button>
+                                        <button class="btn btn-outline-danger" @onclick="() => ReviewAsync(report, MessageReportStatus.Dismissed)" disabled="@_busy">Dismiss</button>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<MessageReportDto> _reports = [];
+    private readonly Dictionary<Guid, string?> _notes = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasRoleAsync(RoleNames.Admin))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _reports = await ReportsClient.GetAdminQueueAsync();
+            foreach (var report in _reports)
+                _notes[report.Id] = report.ReviewNotes;
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load message reports.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReviewAsync(
+        MessageReportDto report,
+        MessageReportStatus status,
+        bool hideMessage = false,
+        bool restrictConversation = false)
+    {
+        _busy = true;
+        _error = null;
+
+        try
+        {
+            var updated = await ReportsClient.ReviewAsync(report.Id, new ReviewMessageReportDto
+            {
+                Status = status,
+                ReviewNotes = GetNotes(report.Id, report.ReviewNotes),
+                HideMessage = hideMessage,
+                RestrictConversation = restrictConversation
+            });
+
+            var index = _reports.FindIndex(r => r.Id == updated.Id);
+            if (index >= 0)
+                _reports[index] = updated;
+            _notes[updated.Id] = updated.ReviewNotes;
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to review message report.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string? GetNotes(Guid reportId, string? fallback)
+    {
+        return _notes.TryGetValue(reportId, out var notes) ? notes : fallback;
+    }
+
+    private void SetNotes(Guid reportId, string? notes)
+    {
+        _notes[reportId] = notes;
+    }
+
+    private static string ToStatusLabel(MessageReportStatus status) => status switch
+    {
+        MessageReportStatus.PendingReview => "Pending",
+        MessageReportStatus.ReviewedNoAction => "No Action",
+        MessageReportStatus.ActionTaken => "Action Taken",
+        MessageReportStatus.Dismissed => "Dismissed",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusClass(MessageReportStatus status) => status switch
+    {
+        MessageReportStatus.PendingReview => "bg-warning text-dark",
+        MessageReportStatus.ActionTaken => "bg-danger",
+        MessageReportStatus.Dismissed => "bg-secondary",
+        _ => "bg-success"
+    };
+}

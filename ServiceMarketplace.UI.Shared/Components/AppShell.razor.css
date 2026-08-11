@@ -2,7 +2,10 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    padding-bottom: 7.5rem;
+    min-height: 100vh;
+    padding-bottom: calc(var(--app-footer-height, 6.5rem) + 1rem);
+    background: var(--app-bg, #f7fafc);
+    color: var(--app-text, #101828);
 }
 
 main {
@@ -11,10 +14,12 @@ main {
     flex-direction: column;
     min-width: 0;
     min-height: 100vh;
+    background: var(--app-bg, #f7fafc);
 }
 
 article.content {
     flex: 1 0 auto;
+    min-width: 0;
 }
 
 .sidebar {
@@ -22,11 +27,11 @@ article.content {
 }
 
 .top-row {
-    background: #eef6ff;
-    border-bottom: 1px solid #cfe0f3;
+    background: var(--app-header-bg, #eef6ff);
+    border-bottom: 1px solid var(--app-border, #d8e2ef);
     box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
     justify-content: flex-end;
-    height: 3.5rem;
+    height: var(--app-topbar-height, 3.5rem);
     display: flex;
     align-items: center;
 }
@@ -40,9 +45,9 @@ article.content {
         max-width: max-content;
         margin-left: auto;
         padding: 0.25rem;
-        border: 1px solid #c7d7ee;
+        border: 1px solid var(--app-border, #d8e2ef);
         border-radius: 10px;
-        background: #f8fbff;
+        background: var(--app-surface, #ffffff);
         box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
     }
 
@@ -63,8 +68,8 @@ article.content {
 
         .top-row ::deep .top-icon-link:hover,
         .top-row ::deep .top-icon-button:hover {
-            border-color: #c7d7ee;
-            background: #f8fbff;
+            border-color: var(--app-border, #d8e2ef);
+            background: var(--app-surface-muted, #f3f7fb);
             color: #0a58ca;
             text-decoration: none;
         }
@@ -118,8 +123,8 @@ main ::deep .app-about-footer {
     right: 0;
     bottom: 0;
     z-index: 20;
-    border-top: 1px solid #b9cbe0;
-    background: linear-gradient(90deg, #e4eef9 0%, #f1f7fd 58%, #e8f5ef 100%);
+    border-top: 1px solid var(--app-border-strong, #b9cbe0);
+    background: var(--app-footer-bg, #e4eef9);
     box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.14);
     padding: 1rem 1.5rem;
     display: flex;
@@ -127,7 +132,7 @@ main ::deep .app-about-footer {
     justify-content: space-between;
     gap: 1rem;
     color: #26384d;
-    min-height: 6.5rem;
+    min-height: var(--app-footer-height, 6.5rem);
     width: 100vw;
 }
 
@@ -152,7 +157,7 @@ main ::deep .about-meta {
 
 @media (max-width: 640.98px) {
     .page {
-        padding-bottom: 9.5rem;
+        padding-bottom: calc(var(--app-footer-height-mobile, 8.75rem) + 1rem);
     }
 
     .top-row {
@@ -166,7 +171,7 @@ main ::deep .about-meta {
 
     main ::deep .app-about-footer {
         flex-direction: column;
-        min-height: 8.75rem;
+        min-height: var(--app-footer-height-mobile, 8.75rem);
     }
 
     main ::deep .about-meta {

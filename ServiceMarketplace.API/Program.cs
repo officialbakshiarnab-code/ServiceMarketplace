@@ -4,10 +4,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ServiceMarketplace.API.Hubs;
 using ServiceMarketplace.API.Configuration;
 using ServiceMarketplace.API.Filters;
 using ServiceMarketplace.API.Middleware;
 using ServiceMarketplace.API.Services;
+using ServiceMarketplace.Application.Configuration;
 using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Application.Validators;
@@ -110,6 +112,19 @@ builder.Services.AddAuthentication(options =>
                     context.Request.Headers.UserAgent.ToString(),
                     context.HttpContext.Connection.RemoteIpAddress?.ToString());
             }
+        },
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+
+            if (!string.IsNullOrWhiteSpace(accessToken) &&
+                path.StartsWithSegments("/hubs/messaging"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
         },
         OnChallenge = async context =>
         {
@@ -261,6 +276,25 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
+    // Messaging endpoints: keep service-order chat usable while limiting burst abuse.
+    options.AddPolicy("messaging", context =>
+    {
+        var userId = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                     ?? context.Connection.RemoteIpAddress?.ToString()
+                     ?? "unknown";
+
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+
     // Admin endpoints: Higher limits for administrative tasks
     options.AddPolicy("admin", context =>
     {
@@ -368,6 +402,20 @@ builder.Services.AddScoped<IMarketplaceEconomicsService, MarketplaceEconomicsSer
 builder.Services.AddScoped<IMarketplaceSearchService, MarketplaceSearchService>();
 builder.Services.AddScoped<IProfileDirectoryService, ProfileDirectoryService>();
 builder.Services.AddScoped<IContactRequestService, ContactRequestService>();
+builder.Services.AddScoped<IConversationService, ConversationService>();
+builder.Services.AddScoped<IMessageModerationService, MessageModerationService>();
+builder.Services.AddScoped<IDeviceRegistrationService, DeviceRegistrationService>();
+builder.Services.Configure<PushNotificationSettings>(builder.Configuration.GetSection(PushNotificationSettings.SectionName));
+builder.Services.AddHttpClient<FcmPushNotificationSender>();
+builder.Services.AddSingleton<NoopPushNotificationSender>();
+builder.Services.AddTransient<IPushNotificationSender>(sp =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PushNotificationSettings>>().Value;
+    return settings.UseFcm
+        ? sp.GetRequiredService<FcmPushNotificationSender>()
+        : sp.GetRequiredService<NoopPushNotificationSender>();
+});
+builder.Services.AddSingleton<IConversationRealtimeNotifier, SignalRConversationRealtimeNotifier>();
 builder.Services.AddScoped<INotificationService, MarketplaceNotificationService>();
 builder.Services.AddScoped<INotificationInboxService, MarketplaceNotificationService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
@@ -414,6 +462,7 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options 
     options.SuppressModelStateInvalidFilter = true;
 });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSignalR();
 builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
@@ -519,6 +568,10 @@ if (!app.Environment.IsEnvironment("Testing"))
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<MessagingHub>("/hubs/messaging", options =>
+{
+    options.CloseOnAuthenticationExpiration = true;
+});
 
 // ==============================
 // HEALTH CHECK ENDPOINTS

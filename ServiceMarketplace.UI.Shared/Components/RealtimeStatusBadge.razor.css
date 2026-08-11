@@ -1,0 +1,27 @@
+.realtime-status {
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    padding: 0.25rem 0.65rem;
+    background: var(--app-surface-muted);
+    color: var(--app-text-muted);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.realtime-status.connected {
+    border-color: #b6e4c7;
+    background: #ecfdf3;
+    color: #126c36;
+}
+
+.realtime-status.reconnecting {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.realtime-status.offline {
+    border-color: #fecaca;
+    background: #fff1f2;
+    color: #991b1b;
+}
