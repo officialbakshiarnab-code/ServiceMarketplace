@@ -11,14 +11,14 @@ public interface IAuditLogService
     /// <summary>
     /// Records a Registration event in the audit log.
     /// </summary>
-    /// <param name="userId">User identifier from ASP.NET Identity</param>
+    /// <param name="userId">User identifier from custom auth</param>
     /// <param name="role">User's assigned role</param>
     Task LogRegistrationAsync(string userId, string role);
 
     /// <summary>
     /// Records a Login event in the audit log.
     /// </summary>
-    /// <param name="userId">User identifier from ASP.NET Identity</param>
+    /// <param name="userId">User identifier from custom auth</param>
     /// <param name="role">User's role at time of login</param>
     /// <param name="sessionId">Unique session identifier (from JWT jti claim)</param>
     /// <param name="ipAddress">Client IP address</param>
@@ -28,7 +28,7 @@ public interface IAuditLogService
     /// <summary>
     /// Records a Logout event in the audit log.
     /// </summary>
-    /// <param name="userId">User identifier from ASP.NET Identity</param>
+    /// <param name="userId">User identifier from custom auth</param>
     /// <param name="role">User's role at time of logout</param>
     /// <param name="sessionId">Session identifier from JWT</param>
     /// <param name="ipAddress">Client IP address</param>
@@ -39,7 +39,7 @@ public interface IAuditLogService
     /// Records a SessionExpired event in the audit log.
     /// Prevents duplicate entries for the same session.
     /// </summary>
-    /// <param name="userId">User identifier from ASP.NET Identity</param>
+    /// <param name="userId">User identifier from custom auth</param>
     /// <param name="role">User's role at time of expiration</param>
     /// <param name="sessionId">Session identifier from JWT</param>
     /// <param name="ipAddress">Client IP address</param>

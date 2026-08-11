@@ -17,6 +17,9 @@ public class CreateServiceRequestDtoValidator : AbstractValidator<CreateServiceR
 
         RuleFor(x => x.Category)
             .NotEmpty()
+            .When(x => x.ServiceCategoryId == null);
+
+        RuleFor(x => x.Category)
             .MaximumLength(100);
 
         RuleFor(x => x.Location)
@@ -28,5 +31,11 @@ public class CreateServiceRequestDtoValidator : AbstractValidator<CreateServiceR
 
         RuleFor(x => x.Longitude)
             .InclusiveBetween(-180, 180);
+
+        RuleFor(x => x.Urgency)
+            .IsInEnum();
+
+        RuleFor(x => x.Requirements)
+            .MaximumLength(2000);
     }
 }

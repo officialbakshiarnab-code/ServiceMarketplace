@@ -1,0 +1,67 @@
+@using Microsoft.AspNetCore.Components.Routing
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<div class="page @(_hideSidebar ? "auth-page" : string.Empty)">
+    @if (!_hideSidebar)
+    {
+        <div class="sidebar">
+            @SidebarContent
+        </div>
+    }
+
+    <main>
+        <div class="top-row px-4">
+            <TopBarActions />
+        </div>
+
+        <article class="content px-4">
+            @BodyContent
+        </article>
+
+        <AppAboutFooter />
+    </main>
+</div>
+
+@code {
+    private static readonly string[] RoutesWithoutSidebar = ["", "login", "register"];
+
+    [Parameter]
+    public RenderFragment? SidebarContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? BodyContent { get; set; }
+
+    private bool _hideSidebar;
+
+    protected override void OnInitialized()
+    {
+        _hideSidebar = IsSidebarHiddenRoute(Navigation.Uri);
+        Navigation.LocationChanged += HandleLocationChanged;
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        var hideSidebar = IsSidebarHiddenRoute(args.Location);
+
+        if (_hideSidebar == hideSidebar)
+            return;
+
+        _hideSidebar = hideSidebar;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsSidebarHiddenRoute(string uri)
+    {
+        var relativeUri = Navigation.ToBaseRelativePath(uri);
+        var route = relativeUri.Split('?', '#')[0].Trim('/');
+
+        return RoutesWithoutSidebar.Any(hiddenRoute =>
+            route.Equals(hiddenRoute, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
+}

@@ -1,5 +1,5 @@
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
@@ -7,18 +7,18 @@ using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Application.Validators;
+using ServiceMarketplace.Domain.Entities;
 using ServiceMarketplace.Domain.Enums;
 using ServiceMarketplace.Infrastructure.Data;
+using ServiceMarketplace.Infrastructure.Data.Extensions;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace ServiceMarketplace.Infrastructure.Services;
 
-// Purpose: Authentication workflows with audit logging and JWT issuance.
 public sealed class AuthService(
-    UserManager<IdentityUser> userManager,
-    RoleManager<IdentityRole> roleManager,
     IConfiguration configuration,
     IAuditLogService auditLogService,
     ITokenRefreshService tokenRefreshService,
@@ -26,370 +26,168 @@ public sealed class AuthService(
     AppDbContext dbContext,
     ILogger<AuthService> logger) : IAuthService
 {
+    private const int PasswordHashIterations = 100_000;
+    private const int SaltLength = 16;
+    private const int HashLength = 32;
+    private const int AccessTokenLifetimeMinutes = 10;
+
     public async Task<AuthRegisterResult> RegisterAsync(
-        string email, 
-        string password, 
+        string email,
+        string password,
         string role,
         string firstName,
         string lastName,
         DateTime dateOfBirth,
         object? governmentIdImage = null)
     {
-        // Validate age again at service level (defense in depth)
-        var ageValidation = AgeValidator.ValidateAge(dateOfBirth, role);
-        if (!ageValidation.IsValid)
-        {
-            logger.LogWarning("[AuthService] Age validation failed during registration for {Email}, Role: {Role}",
-                email, role);
-            return new AuthRegisterResult(false, ageValidation.Error, null);
-        }
-
-        // Normalize role to ensure consistency
         var normalizedRole = RoleConstants.NormalizeRole(role);
-        if (normalizedRole == null)
+        if (normalizedRole == null || !RoleConstants.IsPublicRegistrationRole(normalizedRole))
         {
-            logger.LogWarning("[AuthService] Invalid role provided: {Role}. Valid roles: {ValidRoles}",
-                role, string.Join(", ", RoleConstants.AllRoles));
-            return new AuthRegisterResult(false, $"Invalid role. Valid roles are: {string.Join(", ", RoleConstants.AllRoles)}", null);
+            logger.LogWarning("[AuthService] Role is not allowed during public registration: {Role}", role);
+            return new AuthRegisterResult(false, "Invalid role provided", null);
         }
 
-        // IDEMPOTENCY CHECK: If user already exists with requested role, return success (not error)
-        // This makes the registration endpoint safe to retry
-        var userExists = await userManager.FindByEmailAsync(email);
-        if (userExists != null)
-        {
-            // User exists - check if they have the requested role
-            var userRoles = await userManager.GetRolesAsync(userExists);
-            if (userRoles.Contains(normalizedRole))
-            {
-                // User exists with the exact role requested
-                // Return success to support idempotent retries
-                // Multiple requests with same email/role all succeed
-                logger.LogInformation("[AuthService] Idempotent registration: User {Email} already exists with requested role {Role}. Retry detected.", 
-                    email, normalizedRole);
-                return new AuthRegisterResult(true, null, null);
-            }
-            
-            // User exists but with DIFFERENT role - this is a genuine conflict
-            // Email is already taken with a different role
-            // Caller must use a different email for a different role
-            logger.LogWarning("[AuthService] Registration conflict: User {Email} exists with different role. Existing: {ExistingRoles}, Requested: {RequestedRole}", 
-                email, string.Join(", ", userRoles), normalizedRole);
-            return new AuthRegisterResult(false, "User already exists with a different role. Please use a different email or contact support.", null);
-        }
+        var userType = MapRoleToUserType(normalizedRole);
+        if (userType == null)
+            return new AuthRegisterResult(false, "Invalid user type provided", null);
 
-        // New user - proceed with registration in a transaction for atomicity
-        using var transaction = await dbContext.Database.BeginTransactionAsync();
+        var ageValidation = AgeValidator.ValidateAge(dateOfBirth, userType.Value);
+        if (!ageValidation.IsValid)
+            return new AuthRegisterResult(false, ageValidation.Error, null);
+
+        var normalizedEmail = NormalizeEmail(email);
+        var existing = await dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.NormalizedEmail == normalizedEmail);
+
+        if (existing != null)
+            return new AuthRegisterResult(true, null, null);
+
+        IDbContextTransaction? tx = null;
+        if (dbContext.Database.IsRelational())
+            tx = await dbContext.Database.BeginTransactionAsync();
+
         try
         {
-            var user = new ApplicationUser
+            var user = new User
             {
-                UserName = email,
-                Email = email,
-                EmailConfirmed = false,
+                Email = email.Trim(),
+                NormalizedEmail = normalizedEmail,
                 FirstName = firstName.Trim(),
                 LastName = lastName.Trim(),
-                DateOfBirth = dateOfBirth,
-                PhonePrimary = string.Empty, // Required, set to empty - user can update later
-                UserType = GetUserTypeFromRole(normalizedRole),
-                CreatedAtUtc = DateTime.UtcNow
+                DateOfBirth = DateTime.SpecifyKind(dateOfBirth.Date, DateTimeKind.Utc),
+                PasswordHash = HashPassword(password),
+                PhoneNumber = null,
+                NormalizedPhoneNumber = null,
+                SecondaryPhoneNumber = null,
+                UserType = userType.Value,
+                CreatedDate = DateTime.UtcNow,
+                IsActive = true,
+                IsKycSubmitted = false,
+                IsKycApproved = false
             };
 
-            // Step 1: Create user account
-            var result = await userManager.CreateAsync(user, password);
-            if (!result.Succeeded)
-            {
-                await transaction.RollbackAsync();
-                
-                var errors = result.Errors
-                    .Select(e => new AuthErrorDto { Code = e.Code, Description = e.Description })
-                    .ToList();
-
-                logger.LogWarning("[AuthService] User creation failed for {Email}: {Errors}",
-                    email,
-                    string.Join(", ", result.Errors.Select(e => e.Description)));
-
-                return new AuthRegisterResult(false, null, errors);
-            }
-
-            // Step 2: Verify role exists (must be created during app startup via RoleSeedingService)
-            var roleExists = await roleManager.RoleExistsAsync(normalizedRole);
-            if (!roleExists)
-            {
-                await transaction.RollbackAsync();
-                logger.LogError("[AuthService] Role '{Role}' does not exist. Roles must be created during application startup via RoleSeedingService, not during registration.",
-                    normalizedRole);
-                return new AuthRegisterResult(false, "System configuration error: role not found. Please contact support.", null);
-            }
-
-            // Step 3: Assign role(s) to user (no duplicates possible since user just created)
-            var roleResult = await userManager.AddToRoleAsync(user, normalizedRole);
-            if (!roleResult.Succeeded)
-            {
-                await transaction.RollbackAsync();
-                logger.LogError("[AuthService] Failed to assign role {Role} to user {Email}: {Errors}",
-                    normalizedRole,
-                    email,
-                    string.Join(", ", roleResult.Errors.Select(e => e.Description)));
-                return new AuthRegisterResult(false, "Failed to assign role to user. Please try again.", null);
-            }
-
-            // Step 3b: If registering with Both role, assign BOTH User AND ServiceProvider roles
-            // This allows JWT to contain both role claims for authorization flexibility
-            if (normalizedRole == RoleConstants.Both)
-            {
-                logger.LogInformation("[AuthService] User {Email} registered with Both role - assigning both User and ServiceProvider roles", email);
-                
-                // Assign User role
-                var userRoleResult = await userManager.AddToRoleAsync(user, RoleConstants.User);
-                if (!userRoleResult.Succeeded)
-                {
-                    await transaction.RollbackAsync();
-                    logger.LogError("[AuthService] Failed to assign User role during Both registration for {Email}: {Errors}",
-                        email, string.Join(", ", userRoleResult.Errors.Select(e => e.Description)));
-                    return new AuthRegisterResult(false, "Failed to assign User role. Please try again.", null);
-                }
-
-                // Assign ServiceProvider role
-                var providerRoleResult = await userManager.AddToRoleAsync(user, RoleConstants.ServiceProvider);
-                if (!providerRoleResult.Succeeded)
-                {
-                    await transaction.RollbackAsync();
-                    logger.LogError("[AuthService] Failed to assign ServiceProvider role during Both registration for {Email}: {Errors}",
-                        email, string.Join(", ", providerRoleResult.Errors.Select(e => e.Description)));
-                    return new AuthRegisterResult(false, "Failed to assign ServiceProvider role. Please try again.", null);
-                }
-
-                logger.LogInformation("[AuthService] Successfully assigned both roles to {Email}", email);
-            }
-
-            // Step 4: Log registration event for audit trail
-            await auditLogService.LogRegistrationAsync(user.Id, normalizedRole);
-
-            // Step 5: Handle optional government ID file upload (non-blocking)
             if (governmentIdImage != null)
             {
-                try
+                var uploaded = await fileUploadService.UploadGovernmentIdAsync(governmentIdImage, user.Id.ToString());
+                if (!string.IsNullOrWhiteSpace(uploaded))
                 {
-                    var filePath = await fileUploadService.UploadGovernmentIdAsync(governmentIdImage, user.Id);
-                    
-                    if (!string.IsNullOrWhiteSpace(filePath))
-                    {
-                        // File uploaded successfully - update user record
-                        user.GovernmentIdImagePath = filePath;
-                        await userManager.UpdateAsync(user);
-                        logger.LogInformation("[AuthService] Government ID image stored for user {Email}: {Path}", 
-                            email, filePath);
-                    }
-                    // If file upload failed, log continues and user is still registered
-                    // (registration is not blocked by file upload failure)
-                }
-                catch (Exception ex)
-                {
-                    // Log error but don't fail registration
-                    logger.LogWarning(ex, "[AuthService] Failed to upload government ID image for user {Email} (non-fatal)", email);
+                    user.GovIdFilePath = uploaded;
+                    user.IsKycSubmitted = true;
                 }
             }
 
-            // Commit transaction - all or nothing
-            await transaction.CommitAsync();
+            dbContext.Users.Add(user);
+            await dbContext.SaveChangesAsync();
 
-            logger.LogInformation("[AuthService] User registered successfully: {Email} with role {Role}, DOB: {DOB}", 
-                email, normalizedRole, dateOfBirth.Date);
+            await EnsureUserRolesAsync(user, normalizedRole);
+            await EnsureProviderProfileDraftAsync(user, normalizedRole);
+            await auditLogService.LogRegistrationAsync(user.Id.ToString(), normalizedRole);
+            if (tx != null)
+                await tx.CommitAsync();
 
             return new AuthRegisterResult(true, null, null);
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
-            
-            logger.LogError(ex, "[AuthService] Registration failed with exception for {Email}", email);
-            return new AuthRegisterResult(false, "Registration failed due to a system error. Please try again.", null);
+            if (tx != null)
+                await tx.RollbackAsync();
+
+            logger.LogError(ex, "[AuthService] Registration failed for {Email}", email);
+            return new AuthRegisterResult(false, "Registration failed due to a system error.", null);
+        }
+        finally
+        {
+            if (tx != null)
+                await tx.DisposeAsync();
         }
     }
 
-    /// <summary>
-    /// Converts role string to UserType enum.
-    /// </summary>
-    private static UserType GetUserTypeFromRole(string normalizedRole)
+    public Task<AuthLoginResult> LoginAsync(string email, string password, string? userAgent, string? ipAddress)
     {
-        return normalizedRole switch
-        {
-            RoleConstants.User => UserType.User,
-            RoleConstants.ServiceProvider => UserType.Provider,
-            _ => UserType.User
-        };
+        return LoginWithIdentifierAsync(email, password, userAgent, ipAddress);
     }
 
-    public async Task<AuthLoginResult> LoginAsync(string email, string password, string? userAgent, string? ipAddress)
+    public async Task<AuthLoginResult> LoginWithIdentifierAsync(string identifier, string password, string? userAgent, string? ipAddress)
     {
-        // LOGIN IS READ-ONLY (idempotent)
-        // Every call generates a NEW session with a new JWT and new refresh token
-        // This is safe to retry - each retry gets a fresh JWT, which is the desired behavior
-        // NO state is mutated on failed authentication
-        
-        try
+        if (string.IsNullOrWhiteSpace(identifier) || string.IsNullOrWhiteSpace(password))
+            return new AuthLoginResult(false, null, "Invalid credentials");
+
+        var user = await FindUserByIdentifierAsync(identifier);
+        if (user == null)
+            return new AuthLoginResult(false, null, "Invalid credentials");
+
+        if (user.LockoutEndUtc.HasValue && user.LockoutEndUtc.Value > DateTime.UtcNow)
+            return new AuthLoginResult(false, null, "Account is locked. Try again later.");
+
+        if (!VerifyPassword(password, user.PasswordHash))
         {
-            var user = await userManager.FindByEmailAsync(email);
-            if (user == null)
-            {
-                logger.LogWarning("[AuthService] Login attempt for non-existent user: {Email}", email);
-                return new AuthLoginResult(false, null, "Invalid credentials");
-            }
+            user.AccessFailedCount++;
+            if (user.AccessFailedCount >= 5)
+                user.LockoutEndUtc = DateTime.UtcNow.AddMinutes(15);
 
-            var validPassword = await userManager.CheckPasswordAsync(user, password);
-            if (!validPassword)
-            {
-                logger.LogWarning("[AuthService] Failed login attempt for user: {Email}", email);
-                return new AuthLoginResult(false, null, "Invalid credentials");
-            }
-
-            var roles = await userManager.GetRolesAsync(user);
-            
-            // Validate that user's roles are in the allowed list
-            // This prevents users with misconfigured roles from logging in
-            var invalidRoles = roles.Where(r => !RoleConstants.IsValidRole(r)).ToList();
-            if (invalidRoles.Any())
-            {
-                logger.LogError("[AuthService] User {Email} has invalid roles: {InvalidRoles}. Valid roles: {ValidRoles}",
-                    email,
-                    string.Join(", ", invalidRoles),
-                    string.Join(", ", RoleConstants.AllRoles));
-                return new AuthLoginResult(false, null, "User role configuration is invalid. Please contact support.");
-            }
-
-            // User must have at least one role
-            if (roles.Count == 0)
-            {
-                logger.LogError("[AuthService] User {Email} has no roles assigned. Cannot issue token.", email);
-                return new AuthLoginResult(false, null, "User role is not assigned. Please contact support.");
-            }
-
-            // Generate unique session ID for this login attempt
-            // Each login gets a new session, even for the same user
-            var sessionId = Guid.NewGuid().ToString();
-            var emailValue = user.Email ?? user.UserName ?? email;
-            var primaryRole = roles.FirstOrDefault() ?? RoleConstants.User;
-
-            // Build JWT claims
-            var claims = new List<Claim>
-            {
-                new(ClaimTypes.NameIdentifier, user.Id),
-                new(ClaimTypes.Email, emailValue),
-                new(JwtRegisteredClaimNames.Jti, sessionId),  // Unique session ID
-                new(JwtRegisteredClaimNames.Sub, user.Id),
-                new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
-            };
-
-            // Add all roles as claims (typically just one for this application)
-            foreach (var role in roles)
-            {
-                claims.Add(new Claim(ClaimTypes.Role, role));
-                logger.LogInformation("[AuthService] Added role claim: {Role} for user {Email}", role, emailValue);
-            }
-
-            // For users with UserType.Both (in Roles table), both roles should already be assigned
-            // by the registration service. This loop above will add both.
-            // If user has exactly 2 roles, log them for debugging
-            if (roles.Count == 2)
-            {
-                logger.LogInformation("[AuthService] User {Email} has dual roles: {Roles}", emailValue, string.Join(", ", roles));
-            }
-
-            // Sign JWT token with 10-minute expiration
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]!));
-            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-            var expirationTime = DateTime.UtcNow.AddMinutes(10);
-
-            var token = new JwtSecurityToken(
-                issuer: configuration["Jwt:Issuer"],
-                audience: configuration["Jwt:Audience"],
-                claims: claims,
-                expires: expirationTime,
-                signingCredentials: credentials
-            );
-
-            // Log login to audit trail
-            // NOTE: This happens on every successful login (idempotent behavior)
-            // Each login creates a NEW audit log entry - this is correct
-            try
-            {
-                await auditLogService.LogLoginAsync(user.Id, primaryRole, sessionId, ipAddress, userAgent);
-                logger.LogInformation("[AuthService] Login audit log created for {Email}", emailValue);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "[AuthService] Failed to create audit log for login {Email} (non-critical)", emailValue);
-                // Don't fail the entire login if audit logging fails
-                // Audit logging is important but not critical to the user experience
-            }
-
-            // Issue refresh token for session
-            // ISOLATED: If refresh token generation fails, we still return the JWT
-            // The client will attempt to use it, and refresh will fail with a clear error
-            string? refreshToken = null;
-            DateTime? refreshTokenExpiresAt = null;
-            try
-            {
-                refreshToken = await tokenRefreshService.IssueRefreshTokenAsync(
-                    user.Id, sessionId, ipAddress, userAgent);
-                refreshTokenExpiresAt = DateTime.UtcNow.AddDays(7);
-                logger.LogInformation("[AuthService] Refresh token issued for {Email}", emailValue);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "[AuthService] Failed to issue refresh token for {Email} (non-critical). User will receive JWT but refresh will fail.", emailValue);
-                // Don't throw - this is non-critical to the login flow
-                // User gets a valid JWT and can make authenticated requests
-                // Refresh will fail with a clear error if attempted
-            }
-
-            logger.LogInformation("[AuthService] User logged in successfully: {Email}, SessionId: {SessionId}, Role: {Role}", 
-                emailValue, sessionId, primaryRole);
-
-            var payload = new AuthResultDto
-            {
-                Token = new JwtSecurityTokenHandler().WriteToken(token),
-                ExpiresAt = token.ValidTo,
-                RefreshToken = refreshToken,
-                RefreshTokenExpiresAt = refreshTokenExpiresAt
-            };
-
-            // Return success with JWT payload
-            // Safe to retry: each retry creates new session + new JWT
-            return new AuthLoginResult(true, payload, null);
+            await dbContext.SaveChangesAsync();
+            return new AuthLoginResult(false, null, "Invalid credentials");
         }
-        catch (DbUpdateException ex)
+
+        user.AccessFailedCount = 0;
+        user.LockoutEndUtc = null;
+        await dbContext.SaveChangesAsync();
+
+        if (!user.IsActive)
+            return new AuthLoginResult(false, null, "Account is not active.");
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var roles = GetRoleNames(user).ToList();
+        var primaryRole = roles.FirstOrDefault() ?? user.UserType.GetPrimaryRole();
+        var expiresAt = DateTime.UtcNow.AddMinutes(AccessTokenLifetimeMinutes);
+        var accessToken = await GenerateAccessTokenAsync(user, roles, sessionId, expiresAt);
+        var refreshToken = await tokenRefreshService.IssueRefreshTokenAsync(
+            user.Id.ToString(),
+            sessionId,
+            ipAddress,
+            userAgent);
+
+        await auditLogService.LogLoginAsync(user.Id.ToString(), primaryRole, sessionId, ipAddress, userAgent);
+
+        return new AuthLoginResult(true, new AuthResultDto
         {
-            logger.LogError(ex, "[AuthService] Database error during login for {Email}", email);
-            return new AuthLoginResult(false, null, "Login service is temporarily unavailable. Please try again later.");
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.LogError(ex, "[AuthService] Invalid operation during login for {Email}", email);
-            return new AuthLoginResult(false, null, "Login cannot be completed at this time. Please contact support.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[AuthService] Unexpected error during login for {Email}", email);
-            return new AuthLoginResult(false, null, "An unexpected errorOccurred during login. Please try again later.");
-        }
+            Token = accessToken,
+            ExpiresAt = expiresAt,
+            RefreshToken = refreshToken,
+            RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(7)
+        }, null);
     }
 
     public async Task LogoutAsync(string userId, string sessionId, string? role, string? userAgent, string? ipAddress)
     {
-        if (!string.IsNullOrWhiteSpace(role) && !RoleConstants.IsValidRole(role))
-        {
-            logger.LogWarning("[AuthService] Logout attempt with invalid role: {Role}", role);
-        }
-
         await auditLogService.LogLogoutAsync(userId, role, sessionId, ipAddress, userAgent);
+        await tokenRefreshService.RevokeAllTokensForUserAsync(userId, "Logout");
     }
 
     public async Task HandleTokenExpiredAsync(string? tokenValue, string? userAgent, string? ipAddress)
     {
-        if (string.IsNullOrWhiteSpace(tokenValue))
-            return;
+        if (string.IsNullOrWhiteSpace(tokenValue)) return;
 
         try
         {
@@ -401,62 +199,209 @@ public sealed class AuthService(
             var sessionId = token.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value;
             var role = token.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Role)?.Value;
 
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                logger.LogWarning("[AuthService] Token expired but UserId claim is missing");
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(role) && !RoleConstants.IsValidRole(role))
-            {
-                logger.LogWarning("[AuthService] Token expired but role is invalid: {Role}", role);
-            }
+            if (string.IsNullOrWhiteSpace(userId)) return;
 
             await auditLogService.LogSessionExpiredAsync(userId, role, sessionId, ipAddress, userAgent);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "[AuthService] Failed to record token-expanded audit event");
+            logger.LogWarning(ex, "[AuthService] Failed to record token-expired audit event");
         }
     }
 
-    public async Task<RefreshTokenResponse> RefreshAccessTokenAsync(
-        string refreshToken,
-        string? userAgent,
-        string? ipAddress)
+    public Task<RefreshTokenResponse> RefreshAccessTokenAsync(string refreshToken, string? userAgent, string? ipAddress)
     {
-        try
-        {
-            var response = await tokenRefreshService.RefreshAccessTokenAsync(
-                refreshToken, ipAddress, userAgent);
-
-            // Generate new access token with proper JWT claims
-            var refreshResponse = await GenerateAccessTokenForRefreshAsync(response);
-
-            logger.LogInformation("[AuthService] Successfully refreshed access token");
-
-            return refreshResponse;
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.LogWarning("[AuthService] Token refresh failed: {Error}", ex.Message);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[AuthService] Unexpected error during token refresh");
-            throw;
-        }
+        return tokenRefreshService.RefreshAccessTokenAsync(refreshToken, ipAddress, userAgent);
     }
 
-    private async Task<RefreshTokenResponse> GenerateAccessTokenForRefreshAsync(RefreshTokenResponse baseResponse)
+    private async Task<User?> FindUserByIdentifierAsync(string identifier)
     {
-        // This is a simplified version - in production, extract claims from refresh token
-        // or maintain state about the user associated with the token
-        // For now, we'll return the base response as-is
-        // The real JWT access token generation would happen here
+        var trimmed = identifier.Trim();
+        if (trimmed.Contains('@'))
+        {
+            var normalizedEmail = NormalizeEmail(trimmed);
+            return await dbContext.Users
+                .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+                .FirstOrDefaultAsync(u => u.NormalizedEmail == normalizedEmail);
+        }
 
-        return baseResponse;
+        var normalizedPhone = NormalizePhone(trimmed);
+        return await dbContext.Users
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.NormalizedPhoneNumber == normalizedPhone);
+    }
+
+    private async Task EnsureUserRolesAsync(User user, string requestedRole)
+    {
+        var roleNames = requestedRole == RoleConstants.Both
+            ? new[] { RoleConstants.User, RoleConstants.ServiceProvider }
+            : new[] { requestedRole };
+
+        foreach (var roleName in roleNames)
+        {
+            var role = await dbContext.Roles.FirstOrDefaultAsync(r => r.Name == roleName);
+            if (role == null)
+            {
+                role = new Role
+                {
+                    Name = roleName,
+                    Description = $"{roleName} account role",
+                    CreatedDate = DateTime.UtcNow
+                };
+                dbContext.Roles.Add(role);
+                await dbContext.SaveChangesAsync();
+            }
+
+            var exists = await dbContext.UserRoles.AnyAsync(ur => ur.UserId == user.Id && ur.RoleId == role.Id);
+            if (!exists)
+                dbContext.UserRoles.Add(new ServiceMarketplace.Domain.Entities.UserRole { UserId = user.Id, RoleId = role.Id });
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task EnsureProviderProfileDraftAsync(User user, string requestedRole)
+    {
+        if (requestedRole is not RoleConstants.ServiceProvider and not RoleConstants.Both)
+            return;
+
+        var exists = await dbContext.ServiceProviderProfiles.AnyAsync(p => p.UserId == user.Id);
+        if (exists)
+            return;
+
+        dbContext.ServiceProviderProfiles.Add(new ServiceProviderProfile
+        {
+            UserId = user.Id,
+            DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
+            Skills = string.Empty,
+            PrimaryCategory = string.Empty,
+            ServiceAreaCity = string.Empty,
+            ServiceAreaState = string.Empty,
+            Status = ProviderApplicationStatus.Draft,
+            IdentityVerificationSubmitted = !string.IsNullOrWhiteSpace(user.GovIdFilePath),
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static IEnumerable<string> GetRoleNames(User user)
+    {
+        var assignedRoles = user.UserRoles
+            .Select(ur => ur.Role.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (assignedRoles.Count > 0)
+            return assignedRoles;
+
+        return new[] { user.UserType.GetPrimaryRole() };
+    }
+
+    private async Task<string> GenerateAccessTokenAsync(User user, IReadOnlyCollection<string> roles, string sessionId, DateTime expiresAt)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email ?? user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email ?? user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Jti, sessionId),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new("UserType", ((short)user.UserType).ToString())
+        };
+
+        var primaryRole = roles.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(primaryRole))
+            claims.Add(new Claim("role", primaryRole));
+
+        foreach (var role in roles)
+            claims.Add(new Claim(ClaimTypes.Role, role));
+
+        foreach (var capability in await GetMarketplaceCapabilitiesAsync(user.Id, roles))
+            claims.Add(new Claim(MarketplaceCapabilityConstants.ClaimType, capability));
+
+        foreach (var permission in AdministrativePermissionConstants.FromRoles(roles))
+            claims.Add(new Claim(AdministrativePermissionConstants.ClaimType, permission));
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]!));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: configuration["Jwt:Issuer"],
+            audience: configuration["Jwt:Audience"],
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private async Task<IReadOnlyList<string>> GetMarketplaceCapabilitiesAsync(Guid userId, IReadOnlyCollection<string> roles)
+    {
+        var capabilities = MarketplaceCapabilityConstants.FromRoles(roles)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var approvedSeller = await dbContext.SellerProfiles
+            .AsNoTracking()
+            .AnyAsync(s => s.UserId == userId && s.Status == SellerApplicationStatus.Approved);
+
+        if (approvedSeller)
+            capabilities.Add(MarketplaceCapabilityConstants.ProductSeller);
+
+        return capabilities.ToList();
+    }
+
+    private static UserType? MapRoleToUserType(string role)
+    {
+        return role switch
+        {
+            var r when string.Equals(r, RoleConstants.User, StringComparison.OrdinalIgnoreCase) => UserType.Customer,
+            var r when string.Equals(r, RoleConstants.ServiceProvider, StringComparison.OrdinalIgnoreCase) => UserType.Provider,
+            var r when string.Equals(r, RoleConstants.Both, StringComparison.OrdinalIgnoreCase) => UserType.Provider,
+            var r when string.Equals(r, RoleConstants.Admin, StringComparison.OrdinalIgnoreCase) => UserType.Admin,
+            _ => null
+        };
+    }
+
+    private static string NormalizeEmail(string email) => email.Trim().ToUpperInvariant();
+
+    private static string NormalizePhone(string phone)
+    {
+        return new string(phone.Where(char.IsDigit).ToArray());
+    }
+
+    private static string HashPassword(string password)
+    {
+        var salt = RandomNumberGenerator.GetBytes(SaltLength);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(
+            password,
+            salt,
+            PasswordHashIterations,
+            HashAlgorithmName.SHA256,
+            HashLength);
+
+        return $"v1${PasswordHashIterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    private static bool VerifyPassword(string password, string storedHash)
+    {
+        var parts = storedHash.Split('$');
+        if (parts.Length != 4 || parts[0] != "v1" || !int.TryParse(parts[1], out var iterations))
+            return false;
+
+        var salt = Convert.FromBase64String(parts[2]);
+        var expectedHash = Convert.FromBase64String(parts[3]);
+        var actualHash = Rfc2898DeriveBytes.Pbkdf2(
+            password,
+            salt,
+            iterations,
+            HashAlgorithmName.SHA256,
+            expectedHash.Length);
+
+        return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
     }
 }
-

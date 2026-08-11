@@ -14,7 +14,7 @@ namespace ServiceMarketplace.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/kpis")]
-[Authorize(Roles = RoleConstants.Admin)]
+[Authorize(Policy = "AdminOnly")]
 [EnableRateLimiting("admin")]
 public class AdminKpiController(
     IAdminKpiService kpiService,

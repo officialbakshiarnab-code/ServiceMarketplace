@@ -1,5 +1,6 @@
 using System.Net;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using ServiceMarketplace.API.Tests.Builders;
 using ServiceMarketplace.API.Tests.Fixtures;
 using ServiceMarketplace.API.Tests.Helpers;
@@ -43,7 +44,7 @@ public class RoleBasedAuthorizationTests : IClassFixture<ServiceMarketplaceWebAp
     }
 
     [Fact]
-    public async Task UserEndpoint_WithProviderRole_Returns403Forbidden()
+    public async Task UserEndpoint_WithProviderRole_Returns200()
     {
         // Arrange
         var (accessToken, _) = await RegisterAndLoginAsync(
@@ -54,11 +55,11 @@ public class RoleBasedAuthorizationTests : IClassFixture<ServiceMarketplaceWebAp
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-        // Act - Try to access User-only endpoint
+        // Act - Provider accounts also have service-customer capability.
         var response = await _client.GetAsync("/api/requests/mine");
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -204,6 +205,11 @@ public class RoleBasedAuthorizationTests : IClassFixture<ServiceMarketplaceWebAp
 
         await _client.PostAsJsonAsync("/api/auth/register", registerReq);
 
+        if (role is RoleConstants.ServiceProvider or RoleConstants.Both)
+        {
+            await ApproveProviderAsync(email);
+        }
+
         // Login
         var loginReq = new ServiceMarketplace.API.Models.Auth.LoginRequest
         {
@@ -218,5 +224,16 @@ public class RoleBasedAuthorizationTests : IClassFixture<ServiceMarketplaceWebAp
             throw new InvalidOperationException("No refresh token returned");
 
         return (accessToken, refreshToken);
+    }
+
+    private async Task ApproveProviderAsync(string email)
+    {
+        await using var dbContext = await _factory.GetDbContextAsync();
+        var normalizedEmail = email.Trim().ToUpperInvariant();
+        var user = await dbContext.Users.FirstAsync(u => u.NormalizedEmail == normalizedEmail);
+        user.IsKycSubmitted = true;
+        user.IsKycApproved = true;
+        user.UpdatedDate = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync();
     }
 }

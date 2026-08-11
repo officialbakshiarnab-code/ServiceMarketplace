@@ -1,0 +1,173 @@
+@page "/seller/product-orders"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ProductDeliveryOrdersApiClient OrdersClient
+@inject AuthState AuthState
+@inject NavigationManager Nav
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Product Delivery</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success" role="alert">@_success</div>
+    }
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (_orders.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No product delivery orders yet.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var order in _orders)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between gap-3">
+                        <div>
+                            <h5 class="mb-1">@order.ProductTitle</h5>
+                            <p class="small text-muted mb-1">@order.ProductCategoryName | @order.ProductConditionLabel</p>
+                            <p class="mb-1">Qty @order.Quantity | $@order.TotalPrice.ToString("0.00")</p>
+                            <p class="small mb-1"><strong>Deliver to:</strong> @order.DeliveryRecipientName, @order.DeliveryPhoneNumber</p>
+                            <p class="small mb-1">@order.DeliveryAddress, @order.DeliveryCity, @order.DeliveryState</p>
+                            @if (!string.IsNullOrWhiteSpace(order.BuyerNotes))
+                            {
+                                <p class="small text-muted mb-0">@order.BuyerNotes</p>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(order.CancellationReason))
+                            {
+                                <p class="small text-danger mb-0">@order.CancellationReason</p>
+                            }
+                        </div>
+                        <div class="text-end">
+                            <span class="badge @StatusBadge(order.Status) mb-2">@order.StatusLabel</span>
+                            <div class="small text-muted">@order.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")</div>
+                            @if (NextStatus(order.Status) is ProductDeliveryStatus next)
+                            {
+                                <button class="btn btn-sm btn-primary mt-2" @onclick="() => MoveAsync(order, next)" disabled="@_busy">@NextStatusLabel(next)</button>
+                            }
+                            @if (CanSellerCancel(order))
+                            {
+                                <button class="btn btn-sm btn-outline-danger mt-2 ms-1" @onclick="() => MoveAsync(order, ProductDeliveryStatus.Cancelled)" disabled="@_busy">Cancel</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _success;
+    private List<ProductDeliveryOrderDto> _orders = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductSeller))
+        {
+            Nav.NavigateTo("/account/seller-application", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _orders = await OrdersClient.GetMineAsSellerAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load seller product delivery orders.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task MoveAsync(ProductDeliveryOrderDto order, ProductDeliveryStatus status)
+    {
+        _busy = true;
+        _error = null;
+        _success = null;
+        try
+        {
+            await OrdersClient.UpdateSellerStatusAsync(order.Id, new UpdateProductDeliveryStatusDto
+            {
+                Status = status,
+                CancellationReason = status == ProductDeliveryStatus.Cancelled ? "Cancelled by seller." : null
+            });
+            _success = "Product delivery order updated.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to update product delivery order.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static ProductDeliveryStatus? NextStatus(ProductDeliveryStatus status) => status switch
+    {
+        ProductDeliveryStatus.PendingSellerConfirmation => ProductDeliveryStatus.Confirmed,
+        ProductDeliveryStatus.Confirmed => ProductDeliveryStatus.ReadyForPickup,
+        ProductDeliveryStatus.ReadyForPickup => ProductDeliveryStatus.OutForDelivery,
+        ProductDeliveryStatus.OutForDelivery => ProductDeliveryStatus.Delivered,
+        _ => null
+    };
+
+    private static bool CanSellerCancel(ProductDeliveryOrderDto order) =>
+        order.Status is ProductDeliveryStatus.PendingSellerConfirmation or ProductDeliveryStatus.Confirmed or ProductDeliveryStatus.ReadyForPickup;
+
+    private static string NextStatusLabel(ProductDeliveryStatus status) => status switch
+    {
+        ProductDeliveryStatus.Confirmed => "Confirm",
+        ProductDeliveryStatus.ReadyForPickup => "Ready",
+        ProductDeliveryStatus.OutForDelivery => "Dispatch",
+        ProductDeliveryStatus.Delivered => "Delivered",
+        _ => status.ToString()
+    };
+
+    private static string StatusBadge(ProductDeliveryStatus status) => status switch
+    {
+        ProductDeliveryStatus.Delivered => "bg-success",
+        ProductDeliveryStatus.Cancelled => "bg-danger",
+        ProductDeliveryStatus.OutForDelivery => "bg-primary",
+        ProductDeliveryStatus.ReadyForPickup => "bg-info text-dark",
+        ProductDeliveryStatus.Confirmed => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private void GoBack() => Nav.NavigateTo("/seller/products");
+}

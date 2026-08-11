@@ -184,7 +184,7 @@ public sealed class RoleValidator
 
             result.IsAuthenticated = user?.Identity?.IsAuthenticated == true;
 
-            if (!result.IsAuthenticated)
+            if (user is null || !result.IsAuthenticated)
             {
                 _logger.LogWarning("[RoleValidator] Validation failed: User is not authenticated");
                 return result;

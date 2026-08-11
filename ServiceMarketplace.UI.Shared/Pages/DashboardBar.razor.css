@@ -1,0 +1,31 @@
+.dash-bar-row {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 0.9rem;
+}
+
+.dash-bar-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+}
+
+.dash-bar-track {
+    height: 0.75rem;
+    background: #eef2f7;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.dash-bar-fill {
+    height: 100%;
+    border-radius: inherit;
+}
+
+.dash-bar-fill.blue { background: #1d4ed8; }
+.dash-bar-fill.teal { background: #0f766e; }
+.dash-bar-fill.green { background: #15803d; }
+.dash-bar-fill.amber { background: #b45309; }
+.dash-bar-fill.red { background: #b42318; }
+.dash-bar-fill.slate { background: #475467; }

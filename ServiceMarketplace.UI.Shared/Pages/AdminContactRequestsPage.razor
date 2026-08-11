@@ -1,0 +1,105 @@
+@page "/admin/contact-requests"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@inject ContactRequestsApiClient ContactClient
+
+<PageTitle>Admin Contact Requests</PageTitle>
+
+<div class="container py-4 profile-page">
+    <div class="page-heading">
+        <div>
+            <h2>Contact Review</h2>
+            <p>Approve or reject contact sharing and callback requests.</p>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="LoadAsync" disabled="@_loading">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading queue...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else
+    {
+        <section class="profile-results">
+            @foreach (var request in _queue)
+            {
+                <article class="profile-result">
+                    <div class="profile-icon bi-shield-check"></div>
+                    <div class="profile-main">
+                        <div class="profile-title-row">
+                            <h3>@request.Kind request</h3>
+                            <span class="profile-type">@request.Status</span>
+                        </div>
+                        <p>@request.RequesterName requested @GetRequestLabel(request.Kind) from @request.TargetName.</p>
+                        <small class="text-muted">@request.CreatedAt.ToLocalTime().ToString("g")</small>
+                    </div>
+                    @if (request.Status == ContactRequestStatus.PendingAdminReview)
+                    {
+                        <div class="review-actions">
+                            <button class="btn btn-sm btn-success" @onclick="() => ReviewAsync(request.Id, ContactRequestStatus.Approved)">
+                                <i class="bi bi-check2"></i> Approve
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ReviewAsync(request.Id, ContactRequestStatus.Rejected)">
+                                <i class="bi bi-x-lg"></i> Reject
+                            </button>
+                        </div>
+                    }
+                </article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private List<ContactRequestDto> _queue = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _queue = await ContactClient.GetAdminQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReviewAsync(Guid id, ContactRequestStatus status)
+    {
+        await ContactClient.ReviewAsync(id, new ReviewContactRequestDto
+        {
+            Status = status,
+            ReviewNotes = status == ContactRequestStatus.Approved ? "Approved for marketplace contact sharing." : null,
+            RejectionReason = status == ContactRequestStatus.Rejected ? "Rejected by admin review." : null
+        });
+
+        await LoadAsync();
+    }
+
+    private static string GetRequestLabel(ContactRequestKind kind) => kind switch
+    {
+        ContactRequestKind.Callback => "a callback",
+        _ => "contact details"
+    };
+}

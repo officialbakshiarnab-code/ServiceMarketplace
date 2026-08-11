@@ -1,4 +1,5 @@
 @page "/user/create-request"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.UI.Shared.Auth
 @using ServiceMarketplace.UI.Shared.Requests
 @inject NavigationManager Nav
@@ -6,12 +7,12 @@
 
 @code {
     private bool _isAuthenticated;
-    private string? _role;
+    private bool _hasServiceCustomerCapability;
 
     protected override async Task OnInitializedAsync()
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
+        _hasServiceCustomerCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer);
 
         if (!_isAuthenticated)
         {
@@ -19,7 +20,7 @@
             return;
         }
 
-        if (!string.Equals(_role, "User", StringComparison.Ordinal))
+        if (!_hasServiceCustomerCapability)
         {
             Nav.NavigateTo("/user/dashboard", forceLoad: false);
         }
@@ -32,7 +33,7 @@
         <button class="btn btn-link" @onclick="GoBack">Back</button>
     </div>
 
-    <AuthorizeView Roles="User">
+    <AuthorizeView>
         <Authorized>
             <div class="row">
                 <div class="col-md-8">

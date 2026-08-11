@@ -57,6 +57,7 @@ public static class MauiProgram
             var config = sp.GetRequiredService<IConfiguration>();
             var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(config);
             var handler = sp.GetRequiredService<AuthorizingHttpClientHandler>();
+            handler.InnerHandler = new HttpClientHandler();
             
             var httpClient = new HttpClient(handler)
             { 
@@ -94,7 +95,22 @@ public static class MauiProgram
         // Configure API clients
         builder.Services.AddScoped<AuthApiClient>();
         builder.Services.AddScoped<RequestsApiClient>();
+        builder.Services.AddScoped<ServiceCatalogApiClient>();
+        builder.Services.AddScoped<ProductCatalogApiClient>();
+        builder.Services.AddScoped<ServiceOrdersApiClient>();
+        builder.Services.AddScoped<ServiceOrderMessagesApiClient>();
+        builder.Services.AddScoped<ServiceOrderPaymentsApiClient>();
+        builder.Services.AddScoped<ServiceOrderReviewsApiClient>();
+        builder.Services.AddScoped<ServicePackagesApiClient>();
+        builder.Services.AddScoped<NotificationsApiClient>();
         builder.Services.AddScoped<BidsApiClient>();
+        builder.Services.AddScoped<ProviderApplicationsApiClient>();
+        builder.Services.AddScoped<SellerApplicationsApiClient>();
+        builder.Services.AddScoped<ProductListingsApiClient>();
+        builder.Services.AddScoped<ProductDeliveryOrdersApiClient>();
+        builder.Services.AddScoped<MarketplaceSearchApiClient>();
+        builder.Services.AddScoped<ProfilesApiClient>();
+        builder.Services.AddScoped<ContactRequestsApiClient>();
 
         // Configure platform-specific services
         builder.Services.AddScoped<ITokenStorage, MauiTokenStorage>();

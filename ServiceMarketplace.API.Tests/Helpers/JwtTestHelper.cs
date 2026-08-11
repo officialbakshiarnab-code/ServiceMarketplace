@@ -19,6 +19,9 @@ public static class JwtTestHelper
         if (doc.RootElement.TryGetProperty("token", out var token))
             return token.GetString();
 
+        if (doc.RootElement.TryGetProperty("accessToken", out var accessToken))
+            return accessToken.GetString();
+
         return null;
     }
 
@@ -45,7 +48,22 @@ public static class JwtTestHelper
         var jwtToken = handler.ReadJwtToken(token);
 
         return jwtToken.Claims
-            .ToDictionary(c => c.Type, c => c.Value);
+            .GroupBy(c => c.Type)
+            .ToDictionary(g => g.Key, g => g.First().Value);
+    }
+
+    /// <summary>
+    /// Gets all claim values for a specific claim type.
+    /// </summary>
+    public static IReadOnlyList<string> GetClaimValues(string token, string claimType)
+    {
+        var handler = new JwtSecurityTokenHandler();
+        var jwtToken = handler.ReadJwtToken(token);
+
+        return jwtToken.Claims
+            .Where(c => c.Type == claimType)
+            .Select(c => c.Value)
+            .ToList();
     }
 
     /// <summary>

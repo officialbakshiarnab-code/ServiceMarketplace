@@ -6,12 +6,12 @@ namespace ServiceMarketplace.Application.Interfaces;
 public interface IServiceRequestService
 {
     Task<Guid> CreateAsync(CreateServiceRequestDto dto, string userId);
-    Task<IEnumerable<ServiceRequestDto>> GetOpenAsync();
-    Task<List<ServiceRequestDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm);
+    Task<IEnumerable<ProviderServiceRequestDto>> GetOpenAsync(string providerUserId);
+    Task<List<ProviderServiceRequestDto>> GetNearbyAsync(string providerUserId, double latitude, double longitude, double radiusKm);
     Task<List<ServiceRequestDto>> GetMyRequestsAsync(string userId);
-    Task<List<ServiceRequestDto>> GetAvailableForProviderAsync(string providerUserId);
+    Task<List<ProviderServiceRequestDto>> GetAvailableForProviderAsync(string providerUserId);
     Task<ServiceRequestDto> GetByIdForUserAsync(Guid requestId, string userId);
-    Task<ServiceRequestDto> GetByIdForProviderAsync(Guid requestId, string providerId);
+    Task<ProviderServiceRequestDto> GetByIdForProviderAsync(Guid requestId, string providerId);
     Task AcceptBidAsync(Guid requestId, Guid bidId, string userId);
     
     /// <summary>

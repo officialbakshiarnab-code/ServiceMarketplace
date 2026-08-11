@@ -1,656 +1,262 @@
-# Technical Architecture Guide
+ï»¿# Technical Architecture Guide
 
 This document explains the internal architecture, design decisions, and implementation patterns used in ServiceMarketplace.
 
-## Table of Contents
-
-1. [Architecture Overview](#architecture-overview)
-2. [Authentication & Authorization](#authentication--authorization)
-3. [Business Rules & Entities](#business-rules--entities)
-4. [Security Implementation](#security-implementation)
-5. [Background Jobs](#background-jobs)
-6. [Testing Strategy](#testing-strategy)
-
----
-
 ## Architecture Overview
 
-ServiceMarketplace follows **Clean Architecture** principles with four distinct layers, each with clear responsibilities and minimal dependencies on other layers.
-
-### Layer Structure
+ServiceMarketplace follows Clean Architecture with four main code layers and separate UI projects.
 
 ```
-???????????????????????????????????????
-?  UI Layer (Blazor WASM + MAUI)      ?  (ServiceMarketplace.UI.*)
-?  • Razor components                 ?
-?  • Authentication state provider    ?
-?  • API client wrappers              ?
-???????????????????????????????????????
-                  ? (HTTP + JWT)
-???????????????????????????????????????
-?  API Layer (ASP.NET Core)           ?  (ServiceMarketplace.API)
-?  • Controllers                      ?
-?  • Middleware (auth, logging)       ?
-?  • Health checks                    ?
-?  • Rate limiting policies           ?
-???????????????????????????????????????
-                  ? (Dependency Injection)
-???????????????????????????????????????
-?  Application Layer                  ?  (ServiceMarketplace.Application)
-?  • Use case implementations         ?
-?  • DTOs (data transfer objects)     ?
-?  • Validators (FluentValidation)    ?
-?  • Exceptions                       ?
-?  • Service interfaces               ?
-???????????????????????????????????????
-                  ?
-???????????????????????????????????????
-?  Domain Layer                       ?  (ServiceMarketplace.Domain)
-?  • Entities (User, ServiceRequest)  ?
-?  • Enums (UserType, Status)         ?
-?  • Value objects                    ?
-?  • Domain-level contracts           ?
-???????????????????????????????????????
-                  ?
-???????????????????????????????????????
-?  Infrastructure Layer               ?  (ServiceMarketplace.Infrastructure)
-?  • EF Core DbContext                ?
-?  • Identity integration             ?
-?  • Application services             ?
-?  • Background services              ?
-?  • Database migrations              ?
-???????????????????????????????????????
-                  ? (SQL)
-???????????????????????????????????????
-?  SQL Server Database                ?
-?  • Users (Identity + Profile)       ?
-?  • ServiceRequests, Bids            ?
-?  • AuditLogs                        ?
-?  • RefreshTokens                    ?
-???????????????????????????????????????
+UI Layer (Blazor WASM + MAUI)        ServiceMarketplace.UI.*
+  - Razor components
+  - Authentication state provider
+  - API client wrappers
+        |
+        | HTTP + JWT
+        v
+API Layer (ASP.NET Core)             ServiceMarketplace.API
+  - Controllers
+  - Middleware
+  - Health checks
+  - Rate limiting policies
+        |
+        | Dependency Injection
+        v
+Application Layer                    ServiceMarketplace.Application
+  - DTOs and validators
+  - Service contracts
+  - Application exceptions
+        |
+        v
+Domain Layer                         ServiceMarketplace.Domain
+  - Entities and enums
+  - Domain-level contracts
+        |
+        v
+Infrastructure Layer                 ServiceMarketplace.Infrastructure
+  - EF Core DbContext
+  - Custom auth services
+  - Background services
+  - Postgres migrations
+        |
+        | EF Core + Npgsql
+        v
+PostgreSQL Database
+  - Users, Roles, UserRoles
+  - ServiceRequests, ServiceCategories, ServiceZones, Bids, ServicePackages, ServiceOrders, ServiceOrderMessages
+  - SellerProfiles, ProductCategories, ProductInspectionPrompts, ProductListings, ProductDeliveryOrders
+  - ServiceOrderPayments, PlatformPaymentIntents, ProviderPayouts, ServiceOrderDisputes, ServiceOrderReviews, ServiceOrderAuditEvents
+  - UserNotifications
+  - AuditLogs
+  - RefreshTokens
 ```
 
-### Why This Structure?
+## Dependency Rules
 
-1. **Separation of Concerns**: Each layer has one reason to change
-2. **Testability**: Business logic (Application) is independent of infrastructure
-3. **Flexibility**: Can swap implementations (e.g., different databases) without affecting domain
-4. **Maintainability**: Clear responsibilities make code easier to understand
-5. **Scalability**: Each layer can evolve independently
-
-### Dependency Rules
-
-- **Upper layers** (UI, API) depend on lower layers (Application, Domain, Infrastructure)
-- **Lower layers** (Domain) never depend on upper layers
-- **Never skip layers**: UI must not directly access Infrastructure
-
----
+- API depends on Application, Domain, and Infrastructure for composition.
+- Application defines service contracts and validation behavior.
+- Domain stays independent from infrastructure and API concerns.
+- Infrastructure owns persistence, external service implementations, and migrations.
 
 ## Authentication & Authorization
 
-ServiceMarketplace uses **JWT (JSON Web Token)** authentication with **refresh token rotation** for secure, stateless authentication.
+ServiceMarketplace uses custom auth tables with JWT access tokens and refresh token rotation.
 
-### JWT Token Flow
+### Login Flow
 
-```
-1. User submits credentials (email + password)
-   ?
-2. Server validates via ASP.NET Identity
-   ?
-3. Server generates:
-   - Access Token (JWT, 10-minute expiry)
-   - Refresh Token (7-day expiry, hashed in database)
-   - SessionId (unique GUID for audit trail)
-   ?
-4. Client stores both tokens securely
-   (Access token in memory, Refresh token in secure storage)
-   ?
-5. Client includes Access Token in API request headers:
-   Authorization: Bearer <access-token>
-   ?
-6. Server validates JWT signature and expiry
-```
+1. User submits an email or phone identifier with password.
+2. Server validates credentials against `Users`.
+3. Server issues a short-lived JWT access token and a 7-day refresh token.
+4. Refresh tokens are stored hashed in `RefreshTokens` and rotated on use.
+5. Logout revokes active refresh tokens for the user.
 
-### Refresh Token Rotation
+### Authorization
 
-When the access token expires:
-
-```
-1. Client detects expiration (via token timestamps)
-   ?
-2. Client sends Refresh Token to POST /api/auth/refresh
-   ?
-3. Server validates:
-   - Token hash matches stored value
-   - Not expired
-   - Not revoked
-   ?
-4. Server:
-   - Issues new Access Token (10-minute expiry)
-   - Issues new Refresh Token (7-day expiry)
-   - Marks old Refresh Token as revoked
-   ?
-5. Client stores new tokens
-```
-
-### Authorization: Role-Based Access Control (RBAC)
-
-The platform uses ASP.NET Identity roles with policy-based authorization:
+Authorization policies for marketplace workflows are based on capability claims, not administrative roles. Public registration is limited to legacy marketplace account selections: `User`, `ServiceProvider`, and `Both`. `Admin` is reserved for controlled provisioning outside public registration.
 
 ```csharp
-// In AppDbContext seeding:
-// Creates roles: User, ServiceProvider, Admin
-
-// In controllers:
-[Authorize(Roles = "User")]
+[Authorize(Policy = "UserOnly")] // requires service.customer capability
 public async Task<IActionResult> CreateRequest(...)
 
-[Authorize(Roles = "ServiceProvider")]
+[Authorize(Policy = "ProviderOnly")] // requires service.provider capability
 public async Task<IActionResult> SubmitBid(...)
 
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "AdminOnly")] // requires platform.admin administrative permission
 public async Task<IActionResult> GetAuditLogs(...)
 ```
 
-### Blazor AuthenticationStateProvider
+Provider-facing request and bid operations also enforce provider readiness at the service layer. A provider must be active and KYC-approved before browsing available requests or submitting bids. This keeps commercial actions protected even if a controller or policy is accidentally loosened later.
 
-The Blazor UI uses a custom `TokenAuthenticationStateProvider`:
+## Database Model
 
-```csharp
-public class TokenAuthenticationStateProvider : AuthenticationStateProvider
-{
-    // Reads JWT from secure storage
-    // Validates expiry
-    // Notifies Blazor when auth state changes
-    // Handles automatic token refresh
-}
-```
+PostgreSQL is the runtime database. EF Core migrations live under `ServiceMarketplace.Infrastructure/Data/Migrations`, and the generated one-shot SQL setup script is `full_migrations.sql`.
 
-Components use `<AuthorizeView>` for role-based rendering:
+Core tables:
 
-```razor
-<AuthorizeView Roles="User">
-    <Authorized>
-        <p>Hello, customer!</p>
-    </Authorized>
-    <NotAuthorized>
-        <p>You need to be a customer to see this.</p>
-    </NotAuthorized>
-</AuthorizeView>
-```
+| Table | Purpose |
+|-------|---------|
+| `Users` | Custom account profile, password hash, verification, lockout, and KYC state |
+| `Roles` | Seeded marketplace role names: User, ServiceProvider, Both, Admin |
+| `UserRoles` | Many-to-many user/role mapping |
+| `ServiceRequests` | Customer-created service request records |
+| `ServiceCategories` | Active/inactive service catalog categories used by structured requests |
+| `ServiceZones` | Coarse service areas exposed to providers before exact address disclosure |
+| `Bids` | Provider bids linked to service requests |
+| `ServicePackages` | Provider-owned fixed-price packages for bookable service offers |
+| `ServiceOrders` | Bid-backed or fixed-package job lifecycle records for customer/provider work |
+| `ServiceOrderMessages` | Order-scoped messages between accepted customer/provider participants |
+| `ServiceOrderPayments` | One payment record per service order for offline/direct payment bookkeeping |
+| `ServiceOrderReviews` | One transaction-backed customer review per completed service order |
+| `ServiceOrderAuditEvents` | Append-only transaction history for service order events |
+| `UserNotifications` | Persistent notification inbox records for marketplace events |
+| `AuditLogs` | Registration, login, logout, session, and admin audit events |
+| `RefreshTokens` | Hashed refresh tokens, token family tracking, revocation, and expiry |
+| `ServiceProviderProfiles` | Provider onboarding/application profile, service area, verification flags, and review lifecycle |
+| `SellerProfiles` | Seller onboarding/application profile, pickup zone, verification flags, and review lifecycle |
+| `ProductCategories` | Active/inactive product catalog categories used by listings |
+| `ProductInspectionPrompts` | Category-specific used-product inspection prompts shown to buyers and sellers |
+| `ProductListings` | Seller-owned product listing records browsable by buyers, including condition disclosure |
+| `ProductDeliveryOrders` | Buyer-created product delivery orders with seller fulfillment status, delivery address, and reserved stock accounting |
+| `PlatformPaymentIntents` | Server-created platform payment attempts awaiting trusted verification |
+| `ProviderPayouts` | Provider payout records created when verified platform payments are released |
+| `ServiceOrderDisputes` | Participant-raised disputes for held service-order payments |
 
----
+Important relationships:
 
-## Business Rules & Entities
+- `ServiceRequests` has many `Bids`.
+- `ServiceRequests` has at most one `ServiceOrder`.
+- `Bids` has at most one `ServiceOrder` when accepted.
+- `ServicePackages` has many `ServiceOrders` when customers book fixed-price packages.
+- `SellerProfiles` has many `ProductListings`.
+- `ProductListings` references `ProductCategories` and optionally `ServiceZones`.
+- `ProductCategories` has many `ProductInspectionPrompts`.
+- `ProductListings` has many `ProductDeliveryOrders`.
+- `SellerProfiles` has many `ProductDeliveryOrders` through seller user ID.
+- `ProductDeliveryOrders` optionally references `ServiceZones`.
+- `ServiceOrders` has many `ServiceOrderMessages`.
+- `ServiceOrders` has at most one `ServiceOrderPayment`.
+- `ServiceOrders` has many `PlatformPaymentIntents` and `ServiceOrderDisputes`.
+- `ServiceOrderPayments` can reference one verified `PlatformPaymentIntent`.
+- `ServiceOrderPayments` has at most one `ProviderPayout` for released platform funds.
+- `ServiceOrders` has at most one `ServiceOrderReview`.
+- `ServiceOrders` has many `ServiceOrderAuditEvents`.
+- `UserNotifications` stores order, request, bid, and message IDs for inbox deep links.
+- `ServiceRequests` optionally references `ServiceCategories` and `ServiceZones`.
+- `ServiceProviderProfiles` optionally references `ServiceCategories` and `ServiceZones` for approved provider coverage.
+- `Users` has many `UserRoles`; `Roles` has many `UserRoles`.
+- `AuditLogs` and `RefreshTokens` store user IDs for auth/session tracking.
 
-### UserType Enum
+## Business Rules
 
-Each user has a `UserType` that determines their platform capabilities:
-
-```csharp
-public enum UserType
-{
-    User = 1,           // Can post requests, hire providers
-    ServiceProvider = 2, // Can browse requests, submit bids
-    Both = 3,           // Can do both
-    Admin = 4           // Platform administration
-}
-```
-
-**Business Rules for UserType:**
-
-- **Customer account requires**: Valid email, password, first/last name, date of birth
-- **Provider account requires**: Age ? 18, valid government ID (optional)
-- **Both account requires**: All of the above
-- **Admin accounts**: Created manually by existing admins
-
-### User Entity
-
-```csharp
-public class ApplicationUser : IdentityUser
-{
-    public string FirstName { get; set; }                // Required
-    public string LastName { get; set; }                 // Required
-    public DateTime DateOfBirth { get; set; }            // Required, validated for age
-    public string PhonePrimary { get; set; }             // Required
-    public string PhoneSecondary { get; set; }           // Optional
-    public UserType UserType { get; set; }               // User, Provider, Both, Admin
-    public string GovernmentIdImagePath { get; set; }    // Optional, max 5MB image
-    public DateTime CreatedAtUtc { get; set; }           // Audit trail
-}
-```
-
-### ServiceRequest Entity
-
-```csharp
-public class ServiceRequest
-{
-    public Guid Id { get; set; }
-    public string Title { get; set; }                    // Service title
-    public string Description { get; set; }              // Detailed description
-    public string Category { get; set; }                 // Service category
-    public string Location { get; set; }                 // Address or area
-    public double Latitude { get; set; }                 // For geolocation
-    public double Longitude { get; set; }                // For geolocation
-    public string CustomerId { get; set; }               // FK to User who posted
-    public ServiceRequestStatus Status { get; set; }     // Open, Accepted, Completed, Cancelled
-    public DateTime CreatedAt { get; set; }
-    public DateTime? UpdatedAt { get; set; }
-    public ICollection<Bid> Bids { get; set; }           // Bids received
-}
-```
-
-### Bid Entity
-
-```csharp
-public class Bid
-{
-    public Guid Id { get; set; }
-    public Guid ServiceRequestId { get; set; }           // FK to request
-    public string ServiceProviderId { get; set; }        // FK to user
-    public decimal Amount { get; set; }                  // Bid amount (18,2 precision)
-    public DateTime ProposedDateTime { get; set; }       // When work can be done
-    public string Message { get; set; }                  // Provider's bid message
-    public BidStatus Status { get; set; }                // Pending, Accepted, Rejected
-    public DateTime CreatedAt { get; set; }
-    public DateTime? UpdatedAt { get; set; }
-}
-```
-
-### Business Rules
-
-| Rule | Implementation |
-|------|---|
-| Only customers (UserType.User or Both) can post requests | [Authorize(Roles = "User")] on controller |
-| Only providers (UserType.ServiceProvider or Both) can bid | [Authorize(Roles = "ServiceProvider")] on controller |
-| Providers must be 18+ years old | AgeValidator in Application layer |
-| A provider can only bid once per request | BidService checks for duplicates |
-| Only the customer can accept a bid | Authorization check in service |
-| No sensitive data in JWT payload | Only claims: UserId, Email, Role, SessionId |
-
----
+- Accounts with `service.customer` capability can post service requests.
+- Accounts with approved `service.provider` capability can browse requests and submit bids.
+- Provider accounts also retain default customer capabilities on the same account.
+- Admin users can access operational and audit endpoints.
+- Provider and Both registrations require age validation for 18+.
+- Government ID upload is optional and stored as a file path when submitted.
+- Pre-acceptance provider request DTOs do not expose customer IDs, exact addresses, latitude, or longitude.
+- Service requests support catalog category, service zone, urgency, preferred start time, and free-form requirements fields.
+- Provider request lists prefer normalized service-zone display names over exact customer locations.
+- Provider available-request queries are filtered by approved profile availability, service category coverage, and service zone coverage.
+- Providers can bid only on open requests that match their approved coverage.
+- Customer bid views include provider display/business context, hourly rate, estimated duration, and comparison rank.
+- Exact request address and coordinates become visible to the provider only after that provider's bid is accepted.
+- Accepting a bid creates a `ServiceOrder` with agreed amount, scheduled start, provider/customer participants, and exact job location.
+- Approved providers can create/update fixed-price `ServicePackages` only within their approved category/zone coverage.
+- Customers can browse active fixed-price packages and book one directly; booking creates an accepted `ServiceRequest` and a `ServiceOrder` without an accepted bid.
+- Package-created orders use the same start, provider-complete, payment, completion, review, notification, and audit workflows as bid-created orders.
+- Registered accounts receive default `product.buyer` capability.
+- Seller capability is approval-only and emitted as `product.seller` only when a seller profile is approved.
+- Approved sellers can create/update product listings; unapproved sellers are blocked by policy and service checks.
+- Buyers can browse active product listings with stock by product category, zone, and condition.
+- Used product listings require condition notes and seller inspection checklist details before activation.
+- Product catalog responses include category-specific used-product inspection prompts.
+- Buyers can place product delivery orders against active, stocked listings from approved sellers.
+- Product delivery order creation reserves listing stock; cancellation before delivery starts restores stock.
+- Sellers advance product delivery orders through pending confirmation, confirmed, ready for pickup, out for delivery, and delivered statuses.
+- Direct client-side platform payment recording remains rejected.
+- Customers create platform payment intents after provider completion; admin/server verification creates the held platform payment record.
+- Customer completion releases held platform payments and creates pending provider payout records.
+- Active disputes block completion until admin resolution.
+- Admin dispute resolution can refund the customer, release the provider, or reject the dispute.
+- Unified marketplace search reads active service packages and active stocked product listings from approved providers/sellers.
+- Search supports keyword matching across titles, descriptions, categories, and seller/provider display names.
+- Search supports type, service category, product category, zone, product condition, price range, and sort filters.
+- Providers can start an order and mark it provider-completed; customers confirm final completion.
+- Customers or accepted providers can cancel active orders with a reason.
+- Completed or cancelled orders close the original service request.
+- Accepted order participants can send messages only within their own order thread.
+- Message recipients can mark an order thread read.
+- Persistent notifications are emitted for accepted bids, service order creation/start/provider-completion/final-completion/cancellation, and received order messages.
+- Customers can record one non-platform payment for the agreed amount after provider completion.
+- Platform payment records are rejected until server-side payment verification exists.
+- Customer final completion requires a recorded held payment; confirmation releases that recorded payment.
+- Completed service orders can receive one customer review with a 1-5 rating and optional feedback.
+- Provider profile aggregate rating and review count are updated when a review is created.
+- Admins can moderate reviews by hiding/showing them and storing moderation notes.
+- Order creation, start, provider completion, payment record, completion release, cancellation, review creation, and review moderation append service order audit events.
+- Order DTOs include payment and review summary fields so customer/provider order pages can render transaction state without per-card follow-up calls.
+- Customer order UI exposes payment recording as the required step before final completion.
+- Provider order UI surfaces payment status and customer review details.
+- Customer bid comparison UI surfaces provider rating/review count, hourly rate, estimated duration, comparison rank, and bid message.
+- Provider applications follow a persisted lifecycle: Draft, Submitted, Under Review, Approved, More Information Required, Rejected, Suspended, and Revoked.
+- Admin review approval synchronizes legacy KYC fields so existing provider gates continue to work during the transition.
 
 ## Security Implementation
 
-### Rate Limiting
-
-Protects APIs from abuse by limiting requests per IP/user:
-
-```csharp
-// In Program.cs:
-options.AddPolicy("auth", context =>
-{
-    return RateLimitPartition.GetFixedWindowLimiter(
-        partitionKey: GetUserIdOrIpAddress(context),
-        factory: _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 5,
-            Window = TimeSpan.FromMinutes(1)
-        }
-    );
-});
-
-// Applied to endpoints:
-[EnableRateLimiting("auth")]
-[HttpPost("login")]
-public async Task<IActionResult> Login(...)
-```
-
-### Retry-Safe Authentication
-
-Login and registration are **idempotent** - safe to retry:
-
-```csharp
-// Login: Each call generates a new JWT
-// Same credentials = different token each time
-// Safe to retry on network failures
-
-// Register: 
-// - If user+role exists ? return 200 OK (idempotent)
-// - No double-inserts, transaction-based atomicity
-```
-
-### Token Security
-
-- **Access tokens** are short-lived (10 minutes) to limit exposure
-- **Refresh tokens** are:
-  - Hashed before storage (SHA256)
-  - Rotated on each use (old token revoked)
-  - Tracked with TokenFamily for attack detection
-  - Stored with IssuedAt, ExpiresAt, RevokedAt timestamps
-  
-- **SessionId** (JWT `jti` claim):
-  - Unique GUID per login
-  - Used for audit trail tracking
-  - Prevents session reuse attacks
-
-### HTTPS & CORS
-
-- **HTTPS**: Enforced in production (appsettings.Production.json)
-- **CORS**: Whitelist specific origins, reject others
-- **Security Headers**: Configured via SecurityHeadersMiddleware
-
-### Audit Logging
-
-All authentication events logged to `AuditLogs` table:
-
-```csharp
-public class AuditLog
-{
-    public Guid Id { get; set; }
-    public string UserId { get; set; }              // Who
-    public string EventType { get; set; }           // Login, Logout, SessionExpired
-    public DateTime TimestampUtc { get; set; }      // When (UTC for consistency)
-    public string SessionId { get; set; }           // Which session (JWT jti claim)
-    public string Role { get; set; }                // User's role at the time
-    public string IpAddress { get; set; }           // Where
-    public string UserAgent { get; set; }           // What client
-}
-```
-
-**Append-only pattern**: Never UPDATE audit records, only INSERT.
-
----
+- JWT access tokens expire after 10 minutes.
+- Refresh tokens expire after 7 days and are rotated on refresh.
+- Passwords are hashed with PBKDF2 before storage.
+- JWT signing keys must be configured through user secrets or environment variables and must be at least 32 bytes.
+- Public `Admin` registration is blocked at the API and service layers.
+- Marketplace capabilities and administrative permissions are emitted as separate JWT claim types.
+- Provider commercial actions require active, approved provider status, preferring the `ServiceProviderProfiles` approval lifecycle with legacy KYC compatibility.
+- Product seller actions require approved seller profile status and `product.seller` capability.
+- Used product disclosure fields are seller-controlled but API-validated for presence before active used listings can be published.
+- Product delivery order APIs are participant-scoped: buyers see their own orders and approved sellers see orders for their listings.
+- Sellers cannot create delivery orders for their own product listings.
+- Exact request location is withheld from provider listings/details before provider selection and is omitted from JSON when not visible.
+- Order message APIs return 404 for non-participants so order existence and thread content are not disclosed.
+- Payment and review APIs are order-participant scoped; non-participants receive not-found behavior.
+- Platform payment verification, payout paid marking, and dispute resolution are Admin-only.
+- Platform payment success is represented only after trusted server/admin verification, not by customer-submitted payment status.
+- Unified marketplace search is authenticated and customer-capability scoped so public anonymous marketplace inventory is not exposed yet.
+- Client-submitted platform payment success is not accepted; gateway-backed platform payments are deferred.
+- Service order audit history is participant-scoped for reads and append-only through service-layer hooks.
+- Rate limits protect auth, refresh, bid, request, and admin endpoints.
+- Security headers are applied through middleware.
+- Audit logging records key auth and session events.
 
 ## Background Jobs
 
-### Refresh Token Cleanup
-
-**Purpose**: Delete expired refresh tokens to keep database clean
-
-```csharp
-public class RefreshTokenCleanupService : BackgroundService
-{
-    // Runs every 1 hour
-    // Deletes tokens where ExpiresAt < DateTime.UtcNow
-    // Logs count of tokens deleted
-}
-```
-
-### Abandoned Session Cleanup
-
-**Purpose**: Identify sessions inactive for 7+ days
-
-```csharp
-public class AbandonedSessionCleanupService : BackgroundService
-{
-    // Runs every 24 hours
-    // Marks sessions as abandoned
-    // Useful for analytics and fraud detection
-}
-```
-
-### Audit Log Archival
-
-**Purpose**: Archive old audit logs for compliance
-
-```csharp
-public class AuditLogArchivalService : BackgroundService
-{
-    // Configurable retention (default: 90 days)
-    // Archives or deletes logs older than retention period
-    // Supports regulatory compliance
-}
-```
-
-### Safety Guarantees
-
-- All services handle **graceful shutdown** via `CancellationToken`
-- **Idempotent operations** - safe to run multiple times
-- **Comprehensive logging** - all errors logged
-- **No data loss** - backups created before deletion
-
----
+- `RefreshTokenCleanupService` removes expired refresh tokens.
+- `AbandonedSessionCleanupService` handles stale auth sessions.
+- `AuditLogArchivalService` maintains audit log retention.
 
 ## Testing Strategy
 
-### Unit Tests
+Authentication and authorization are primarily covered by integration tests because token, persistence, and request pipeline behavior must work together.
 
-**NOT used** for authentication/authorization because:
-- Tests would mock identity, losing real behavior verification
-- Business logic depends heavily on EF Core/Identity behavior
-- Mocking creates false confidence in integration
-
-**Used for** validator and utility logic:
-```csharp
-[TestMethod]
-public void AgeValidator_Under18_ShouldFail()
-{
-    var birthDate = DateTime.Now.AddYears(-17);
-    var result = AgeValidator.ValidateAge(birthDate, UserType.ServiceProvider);
-    Assert.IsFalse(result.IsValid);
-}
-```
-
-### Integration Tests
-
-**Comprehensive testing** with real database:
-
-```csharp
-[TestClass]
-public class AuthenticationTests
-{
-    // Tests user registration with all validations
-    // Tests login with valid/invalid credentials
-    // Tests token refresh and rotation
-    // Tests role-based access enforcement
-    // Tests rate limiting
-    
-    // Uses real SQL Server (local or test container)
-    // No mocking of auth internals
-    // Verifies end-to-end flows
-}
-```
-
-### What's Tested
-
-? User registration (all validations)  
-? Login success/failure  
-? Token generation and structure  
-? Token refresh and rotation  
-? Role-based authorization  
-? Rate limiting enforcement  
-? Audit log creation  
-? Bid workflows  
-? Service request lifecycle  
-
-### Running Tests
+Run validation:
 
 ```bash
-dotnet test
+dotnet build ServiceMarketplace.sln --no-restore
+dotnet test ServiceMarketplace.sln --no-build
 ```
 
-Tests run against local SQL Server instance (configured in test settings).
-
----
+The test factory uses EF Core in-memory storage and test-only JWT configuration for integration tests. Local development uses PostgreSQL configured through user secrets or environment variables as described in `DATABASE_SETUP.md`.
 
 ## Development Workflow
 
-### Adding a New Feature
-
-1. **Create domain entity** in `ServiceMarketplace.Domain`
-2. **Create EF migration** in `ServiceMarketplace.Infrastructure`
-3. **Create service interface** in `ServiceMarketplace.Application`
-4. **Implement service** in `ServiceMarketplace.Infrastructure`
-5. **Create controller** in `ServiceMarketplace.API`
-6. **Create Razor components** in `ServiceMarketplace.UI.Shared`
-7. **Add integration tests**
-
-### Code Review Checklist
-
-- [ ] Code follows clean architecture layers
-- [ ] No circular dependencies
-- [ ] UI components use `<AuthorizeView>` for access control
-- [ ] API endpoints have `[Authorize]` attributes
-- [ ] DTOs used for API requests/responses (never entities)
-- [ ] All external inputs validated
-- [ ] Sensitive data never logged
-- [ ] Audit trail entries created for security events
-- [ ] Tests pass: `dotnet test`
-- [ ] Build succeeds: `dotnet build`
-
----
-
-## Deployment Considerations
-
-### Environment Configuration
-
-**Development** (`appsettings.Development.json`):
-- Local database connection
-- JWT key (non-secret, dev-only)
-- Detailed logging enabled
-- CORS allows localhost
-
-**Production** (`appsettings.Production.json`):
-- Production database (RDS, Azure SQL, etc.)
-- JWT key: Strong 256-bit secret
-- Minimal logging (perf)
-- CORS: Specific production origins only
-- HTTPS: Required
-- Rate limiting: Enforced
-- Audit logging: Enabled
-
-### Key Deployment Steps
-
-1. Build: `dotnet build --configuration Release`
-2. Test: `dotnet test`
-3. Migrate: `dotnet ef database update --project Infrastructure`
-4. Deploy API to app service / container / VM
-5. Deploy UI (static files) to storage / CDN
-6. Verify `/swagger` and `/health` endpoints
-7. Monitor Application Insights
-8. Review audit logs regularly
-
-### Monitoring
-
-Key metrics to track:
-
-- **API response times** (p50, p95, p99)
-- **Error rate** (should be < 1%)
-- **Rate limit hits** (indicates attack attempt or misconfiguration)
-- **Failed login attempts** (brute force detection)
-- **Token refresh rate** (normal usage pattern)
-- **Database connection pool** (capacity planning)
-
----
-
-## Common Patterns
-
-### Creating a Service
-
-```csharp
-// 1. Define interface in Application layer
-public interface IYourService
-{
-    Task<YourDto> GetAsync(string id);
-}
-
-// 2. Implement in Infrastructure layer
-public class YourService : IYourService
-{
-    private readonly AppDbContext _context;
-    private readonly ILogger<YourService> _logger;
-    
-    public YourService(AppDbContext context, ILogger<YourService> logger)
-    {
-        _context = context;
-        _logger = logger;
-    }
-    
-    public async Task<YourDto> GetAsync(string id)
-    {
-        var entity = await _context.YourEntities.FindAsync(id);
-        if (entity == null)
-            throw new NotFoundException("Entity not found");
-        
-        _logger.LogInformation("Retrieved entity: {Id}", id);
-        return new YourDto { /* map */ };
-    }
-}
-
-// 3. Register in Program.cs
-builder.Services.AddScoped<IYourService, YourService>();
-
-// 4. Use in controller
-[ApiController]
-public class YourController
-{
-    private readonly IYourService _service;
-    
-    public YourController(IYourService service) => _service = service;
-    
-    [HttpGet("{id}")]
-    public async Task<IActionResult> Get(string id)
-    {
-        var result = await _service.GetAsync(id);
-        return Ok(result);
-    }
-}
-```
-
-### Validating Input
-
-```csharp
-// Use FluentValidation in Application layer
-public class CreateYourDtoValidator : AbstractValidator<CreateYourDto>
-{
-    public CreateYourDtoValidator()
-    {
-        RuleFor(x => x.Name)
-            .NotEmpty()
-            .MaximumLength(100);
-        
-        RuleFor(x => x.Email)
-            .EmailAddress();
-    }
-}
-
-// Auto-validate in service layer
-var validator = new CreateYourDtoValidator();
-var validation = await validator.ValidateAsync(dto);
-if (!validation.IsValid)
-    throw new BadRequestException(validation.Errors[0].ErrorMessage);
-```
-
-### Role-Based Authorization
-
-```razor
-@* Component in UI.Shared *@
-@if (user.UserType == UserType.User || user.UserType == UserType.Both)
-{
-    <p>You can post service requests</p>
-}
-
-@if (user.UserType == UserType.ServiceProvider || user.UserType == UserType.Both)
-{
-    <p>You can submit bids</p>
-}
-```
-
----
-
-## Glossary
-
-| Term | Meaning |
-|------|---------|
-| **JWT** | JSON Web Token - stateless auth token |
-| **SessionId** | Unique ID for each login (JWT `jti` claim) |
-| **RBAC** | Role-Based Access Control |
-| **DTO** | Data Transfer Object - safe data structure for APIs |
-| **Idempotent** | Safe to retry without side effects |
-| **Token Rotation** | Issuing new token and revoking old one |
-| **Audit Trail** | Immutable log of all security events |
-| **Clean Architecture** | Layered design with clear separation of concerns |
-
----
+1. Update domain entities in `ServiceMarketplace.Domain`.
+2. Update contracts or validators in `ServiceMarketplace.Application`.
+3. Update persistence and migrations in `ServiceMarketplace.Infrastructure`.
+4. Update controllers or middleware in `ServiceMarketplace.API`.
+5. Run build and tests.
+6. Regenerate `full_migrations.sql` when migrations change.
 
 ## References
 
-- [Microsoft Clean Architecture](https://docs.microsoft.com/en-us/dotnet/architecture/modern-web-apps-azure/architectural-principles)
-- [ASP.NET Core Security](https://docs.microsoft.com/en-us/aspnet/core/security)
-- [JWT Best Practices](https://tools.ietf.org/html/rfc8725)
-- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
-
----
-
-**Last Updated**: February 2025 | **Audience**: Engineering Team
+- Local database setup: `DATABASE_SETUP.md`
+- One-shot database script: `full_migrations.sql`
+- ProjectBrain DB architecture notes: `ProjectBrain/projects/ServiceMarketplace/DATABASE.md`

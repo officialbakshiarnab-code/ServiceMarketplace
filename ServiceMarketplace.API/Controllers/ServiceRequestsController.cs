@@ -12,7 +12,7 @@ namespace ServiceMarketplace.API.Controllers;
 [ApiController]
 [Route("api/requests")]
 // Purpose: Manage service requests for users and providers.
-// Roles: User (create/accept), ServiceProvider (open/nearby list).
+// Capabilities: service.customer (create/accept), service.provider (open/nearby list).
 public class ServiceRequestsController : ControllerBase
 {
     private readonly IServiceRequestService _service;
@@ -29,7 +29,7 @@ public class ServiceRequestsController : ControllerBase
     /// Creates a new service request.
     /// Rate Limited: 5 requests per 10 minutes per user.
     /// </summary>
-    [Authorize(Roles = RoleConstants.User)]
+    [Authorize(Policy = "UserOnly")]
     [HttpPost]
     [EnableRateLimiting("requests")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -53,19 +53,25 @@ public class ServiceRequestsController : ControllerBase
     }
 
     // SERVICE PROVIDER views open requests
-    [Authorize(Roles = RoleConstants.ServiceProvider)]
+    [Authorize(Policy = "ProviderOnly")]
     [HttpGet("open")]
     public async Task<IActionResult> GetOpen()
     {
         var providerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         _logger.LogInformation("[ServiceRequestsController] Provider {ProviderId} viewing open requests", providerId);
 
-        var requests = await _service.GetOpenAsync();
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            _logger.LogWarning("[ServiceRequestsController] GetOpen called but ProviderId claim is missing");
+            throw new UnauthorizedAccessException("Authentication is required.");
+        }
+
+        var requests = await _service.GetOpenAsync(providerId);
         return Ok(requests);
     }
 
     // SERVICE PROVIDER searches nearby open requests
-    [Authorize(Roles = RoleConstants.ServiceProvider)]
+    [Authorize(Policy = "ProviderOnly")]
     [HttpPost("nearby")]
     public async Task<IActionResult> GetNearby(NearbySearchDto dto)
     {
@@ -73,12 +79,18 @@ public class ServiceRequestsController : ControllerBase
         _logger.LogInformation("[ServiceRequestsController] Provider {ProviderId} searching nearby requests at {Lat},{Lng} radius {Radius}km",
             providerId, dto.Latitude, dto.Longitude, dto.RadiusKm);
 
-        var requests = await _service.GetNearbyAsync(dto.Latitude, dto.Longitude, dto.RadiusKm);
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            _logger.LogWarning("[ServiceRequestsController] GetNearby called but ProviderId claim is missing");
+            throw new UnauthorizedAccessException("Authentication is required.");
+        }
+
+        var requests = await _service.GetNearbyAsync(providerId, dto.Latitude, dto.Longitude, dto.RadiusKm);
         return Ok(requests);
     }
 
     // USER views their own requests
-    [Authorize(Roles = RoleConstants.User)]
+    [Authorize(Policy = "UserOnly")]
     [HttpGet("mine")]
     public async Task<IActionResult> GetMine()
     {
@@ -96,7 +108,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     // SERVICE PROVIDER views available open requests (excluding own)
-    [Authorize(Roles = RoleConstants.ServiceProvider)]
+    [Authorize(Policy = "ProviderOnly")]
     [HttpGet("available")]
     public async Task<IActionResult> GetAvailable()
     {
@@ -114,7 +126,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     // USER views details for their request
-    [Authorize(Roles = RoleConstants.User)]
+    [Authorize(Policy = "UserOnly")]
     [HttpGet("{requestId}")]
     public async Task<IActionResult> GetById(Guid requestId)
     {
@@ -132,7 +144,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     // SERVICE PROVIDER views details for any open request (to place bid)
-    [Authorize(Roles = RoleConstants.ServiceProvider)]
+    [Authorize(Policy = "ProviderOnly")]
     [HttpGet("{requestId}/details")]
     public async Task<IActionResult> GetRequestDetails(Guid requestId)
     {
@@ -150,7 +162,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     // USER accepts a bid
-    [Authorize(Roles = RoleConstants.User)]
+    [Authorize(Policy = "UserOnly")]
     [HttpPost("{requestId}/accept/{bidId}")]
     public async Task<IActionResult> AcceptBid(Guid requestId, Guid bidId)
     {
@@ -174,7 +186,7 @@ public class ServiceRequestsController : ControllerBase
     /// Returns counts of open requests, active bids, and completed requests.
     /// Uses efficient single query to avoid N+1 problems.
     /// </summary>
-    [Authorize(Roles = RoleConstants.User)]
+    [Authorize(Policy = "UserOnly")]
     [HttpGet("stats")]
     [ProducesResponseType(typeof(UserDashboardStatsDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

@@ -44,7 +44,8 @@
                         <p class="mb-1 text-muted">@r.Description</p>
                         <div class="d-flex gap-3 text-muted small">
                             <span>@r.Category</span>
-                            <span>@r.Location</span>
+                            <span>@r.ApproximateLocation</span>
+                            <span>@r.Urgency</span>
                             <span>Bids: @r.BidCount</span>
                         </div>
                     </button>
@@ -57,7 +58,7 @@
 @code {
     private bool _loading;
     private string? _error;
-    private List<ServiceRequestDto> _items = [];
+    private List<ProviderServiceRequestDto> _items = [];
 
     protected override Task OnInitializedAsync() => ReloadAsync();
 

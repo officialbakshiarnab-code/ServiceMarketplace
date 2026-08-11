@@ -1,0 +1,170 @@
+@page "/admin/order-reviews"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ServiceOrderReviewsApiClient ReviewsClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<PageTitle>Order Reviews - Admin</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Order Reviews</h2>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadAsync" disabled="@_loading">Refresh</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (_reviews.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No reviews yet.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Review</th>
+                        <th>Provider</th>
+                        <th>Status</th>
+                        <th>Moderation</th>
+                        <th class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var review in _reviews)
+                    {
+                        <tr>
+                            <td>
+                                <div><strong>@review.Rating / 5</strong></div>
+                                <div class="small text-muted">@review.Feedback</div>
+                                <div class="small text-muted">@review.CreatedAt.ToLocalTime().ToString("g")</div>
+                            </td>
+                            <td class="font-monospace small">@Truncate(review.ProviderId)</td>
+                            <td>
+                                <span class="badge @GetReviewStatusClass(review)">
+                                    @(review.IsHidden ? "Hidden" : "Visible")
+                                </span>
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm"
+                                       value="@GetNotes(review.Id, review.ModerationNotes)"
+                                       @oninput="e => SetNotes(review.Id, e.Value?.ToString())"
+                                       placeholder="Moderation notes" />
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm @GetModerationButtonClass(review)"
+                                        @onclick="() => ToggleAsync(review)"
+                                        disabled="@_busy">
+                                    @(review.IsHidden ? "Show" : "Hide")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<ServiceOrderReviewDto> _reviews = [];
+    private readonly Dictionary<Guid, string?> _notes = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasRoleAsync(RoleNames.Admin))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _reviews = await ReviewsClient.GetForAdminAsync(includeHidden: true);
+            foreach (var review in _reviews)
+                _notes[review.Id] = review.ModerationNotes;
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load reviews.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ToggleAsync(ServiceOrderReviewDto review)
+    {
+        _busy = true;
+        _error = null;
+
+        try
+        {
+            var updated = await ReviewsClient.ModerateAsync(review.Id, new ModerateServiceOrderReviewDto
+            {
+                IsHidden = !review.IsHidden,
+                ModerationNotes = GetNotes(review.Id, review.ModerationNotes)
+            });
+
+            var index = _reviews.FindIndex(r => r.Id == updated.Id);
+            if (index >= 0)
+                _reviews[index] = updated;
+            _notes[updated.Id] = updated.ModerationNotes;
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to moderate review.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string? GetNotes(Guid reviewId, string? fallback)
+    {
+        return _notes.TryGetValue(reviewId, out var notes) ? notes : fallback;
+    }
+
+    private void SetNotes(Guid reviewId, string? notes)
+    {
+        _notes[reviewId] = notes;
+    }
+
+    private static string GetReviewStatusClass(ServiceOrderReviewDto review) =>
+        review.IsHidden ? "bg-warning text-dark" : "bg-success";
+
+    private static string GetModerationButtonClass(ServiceOrderReviewDto review) =>
+        review.IsHidden ? "btn-outline-success" : "btn-outline-warning";
+
+    private static string Truncate(string value)
+    {
+        return value.Length <= 12 ? value : value[..12];
+    }
+}

@@ -1,0 +1,68 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.Extensions.Logging
+@using ServiceMarketplace.UI.Shared.Auth
+@inject SafeLogoutService LogoutService
+@inject NavigationManager Nav
+@inject ILogger<TopBarActions> Logger
+
+<AuthorizeView>
+    <Authorized>
+        <div class="top-action-group" aria-label="Account actions">
+            <NavLink class="top-icon-link" href="/notifications" title="Notifications" aria-label="Notifications">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+                    <path d="M9 17a3 3 0 0 0 6 0" />
+                </svg>
+            </NavLink>
+            <button type="button"
+                    class="top-icon-button"
+                    title="Sign out"
+                    aria-label="Sign out"
+                    disabled="@_isBusy"
+                    @onclick="HandleLogoutAsync">
+                @if (_isBusy)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M10 17l5-5-5-5" />
+                        <path d="M15 12H3" />
+                        <path d="M13 5h5a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5" />
+                    </svg>
+                }
+            </button>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private bool _isBusy;
+
+    private async Task HandleLogoutAsync()
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+
+        try
+        {
+            Logger.LogInformation("[TopBarActions] Starting logout sequence");
+            await LogoutService.LogoutAsync();
+            Logger.LogInformation("[TopBarActions] Logout sequence completed, redirecting to login");
+            Nav.NavigateTo("/login", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[TopBarActions] Error during logout: {Error}", ex.Message);
+            Nav.NavigateTo("/login", forceLoad: true);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

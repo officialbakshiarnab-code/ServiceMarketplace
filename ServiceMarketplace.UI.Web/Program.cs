@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.JSInterop;
 using ServiceMarketplace.UI.Shared.Admin;
 using ServiceMarketplace.UI.Shared.Auth;
 using ServiceMarketplace.UI.Shared.Configuration;
@@ -42,8 +43,9 @@ builder.Services.AddScoped<AuthorizingHttpClientHandler>();
 builder.Services.AddScoped(sp =>
 {
     var handler = sp.GetRequiredService<AuthorizingHttpClientHandler>();
+    handler.InnerHandler = new HttpClientHandler();
     
-    // Create HttpClient with token handler as the inner handler
+    // Create HttpClient with token handler in front of the platform HTTP transport.
     // Token handler will be called before request is sent to server
     var httpClient = new HttpClient(handler)
     {
@@ -77,25 +79,46 @@ builder.Services.AddScoped<TokenRefreshHttpClient>();
 // Configure API clients
 builder.Services.AddScoped<AuthApiClient>();
 builder.Services.AddScoped<RequestsApiClient>();
+builder.Services.AddScoped<ServiceCatalogApiClient>();
+builder.Services.AddScoped<ProductCatalogApiClient>();
+builder.Services.AddScoped<ServiceOrdersApiClient>();
+builder.Services.AddScoped<ServiceOrderMessagesApiClient>();
+builder.Services.AddScoped<ServiceOrderPaymentsApiClient>();
+builder.Services.AddScoped<ServiceOrderReviewsApiClient>();
+builder.Services.AddScoped<ServicePackagesApiClient>();
+builder.Services.AddScoped<NotificationsApiClient>();
 builder.Services.AddScoped<BidsApiClient>();
+builder.Services.AddScoped<ProviderApplicationsApiClient>();
+builder.Services.AddScoped<SellerApplicationsApiClient>();
+builder.Services.AddScoped<ProductListingsApiClient>();
+builder.Services.AddScoped<ProductDeliveryOrdersApiClient>();
+builder.Services.AddScoped<MarketplaceSearchApiClient>();
+builder.Services.AddScoped<ProfilesApiClient>();
+builder.Services.AddScoped<ContactRequestsApiClient>();
 builder.Services.AddScoped<AuditLogsApiClient>();
 builder.Services.AddScoped<AdminKpiApiClient>();
 
 // Configure platform-specific services
-builder.Services.AddScoped<ITokenStorage, LocalStorageTokenStorage>();
+builder.Services.AddScoped<ITokenStorage, WebSessionTokenStorage>();
 
 // Role validation services (UI.Shared)
 builder.Services.AddScoped<RoleValidator>();
 
 var host = builder.Build();
 
-// INITIALIZATION: Restore authentication state from storage on app startup
+var jsRuntime = host.Services.GetRequiredService<IJSRuntime>();
+await jsRuntime.InvokeVoidAsync("localStorage.removeItem", "auth_token");
+await jsRuntime.InvokeVoidAsync("localStorage.removeItem", "refresh_token");
+await jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "auth_token");
+await jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "refresh_token");
+
+// INITIALIZATION: Restore authentication state for the current app session
 // This happens before rendering any components, so:
-// 1. Stored JWT token is read from LocalStorage (if exists)
+// 1. Current in-memory JWT token is read if the app session already has one
 // 2. Token is validated and parsed
 // 3. AuthenticationStateProvider notified with restored claims
 // 4. <AuthorizeView> and <AuthorizeRouteView> components get correct auth state
-// 5. User sees their role-appropriate UI immediately without re-login
+// 5. Browser close, reload, or debug restart starts signed out
 var authStateInitializer = host.Services.GetRequiredService<AuthenticationStateInitializer>();
 var authStateProvider = host.Services.GetRequiredService<TokenAuthenticationStateProvider>();
 

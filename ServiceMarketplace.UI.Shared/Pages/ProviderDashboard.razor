@@ -1,83 +1,192 @@
 @page "/provider/dashboard"
-@using ServiceMarketplace.UI.Shared.Requests
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
 @inject NavigationManager Nav
 @inject AuthRedirector Redirector
 @inject AuthState AuthState
+@inject RequestsApiClient RequestsClient
+@inject BidsApiClient BidsClient
+@inject ServiceOrdersApiClient OrdersClient
+@inject ContactRequestsApiClient ContactClient
+
+<PageTitle>Provider Dashboard</PageTitle>
+
+<div class="container py-4 dashboard-page">
+    <div class="dashboard-heading">
+        <div>
+            <h2>Provider Dashboard</h2>
+            <p>Bid pipeline, service orders, package actions, and contact/callback requests.</p>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading dashboard...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-warning">@_error</div>
+    }
+
+    <section class="kpi-grid">
+        <article class="kpi-card">
+            <i class="bi bi-radar"></i>
+            <span>Available Requests</span>
+            <strong>@_availableCount</strong>
+        </article>
+        <article class="kpi-card">
+            <i class="bi bi-bookmark-check"></i>
+            <span>My Bids</span>
+            <strong>@_bidCount</strong>
+        </article>
+        <article class="kpi-card">
+            <i class="bi bi-clipboard2-check"></i>
+            <span>Orders</span>
+            <strong>@_orderCount</strong>
+        </article>
+        <article class="kpi-card">
+            <i class="bi bi-telephone-outbound"></i>
+            <span>Callbacks</span>
+            <strong>@(_contactSummary?.CallbackPendingCount ?? 0)</strong>
+        </article>
+    </section>
+
+    <section class="dashboard-layout">
+        <div class="dashboard-panel provider-accent">
+            <div class="panel-title">
+                <h3>Provider Actions</h3>
+                <span>Bid and fulfillment workflow</span>
+            </div>
+            <div class="action-grid">
+                <button class="action-tile primary" @onclick="GoToAvailableRequests">
+                    <i class="bi bi-search"></i>
+                    <span>Available Requests</span>
+                </button>
+                <button class="action-tile" @onclick="GoToMyBids">
+                    <i class="bi bi-bookmark-check"></i>
+                    <span>My Bids</span>
+                </button>
+                <button class="action-tile" @onclick="GoToServiceOrders">
+                    <i class="bi bi-clipboard-check"></i>
+                    <span>Provider Orders</span>
+                </button>
+                <button class="action-tile" @onclick="GoToServicePackages">
+                    <i class="bi bi-tags"></i>
+                    <span>My Packages</span>
+                </button>
+                <button class="action-tile" @onclick="GoToProfiles">
+                    <i class="bi bi-person-lines-fill"></i>
+                    <span>Profile Search</span>
+                </button>
+                <button class="action-tile" @onclick="GoToContactRequests">
+                    <i class="bi bi-telephone-outbound"></i>
+                    <span>Contact Requests</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Pipeline Distribution</h3>
+                <span>CSS-only chart</span>
+            </div>
+            <DashboardBar Label="Available" Value="@_availableCount" Max="@MaxProviderValue" ClassName="blue" />
+            <DashboardBar Label="Bids" Value="@_bidCount" Max="@MaxProviderValue" ClassName="teal" />
+            <DashboardBar Label="Orders" Value="@_orderCount" Max="@MaxProviderValue" ClassName="green" />
+        </div>
+
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Contact & Callback</h3>
+                <span>Privacy-gated direct contact</span>
+            </div>
+            <DashboardBar Label="Pending" Value="@(_contactSummary?.PendingCount ?? 0)" Max="@MaxContactValue" ClassName="amber" />
+            <DashboardBar Label="Approved" Value="@(_contactSummary?.ApprovedCount ?? 0)" Max="@MaxContactValue" ClassName="green" />
+            <DashboardBar Label="Rejected" Value="@(_contactSummary?.RejectedCount ?? 0)" Max="@MaxContactValue" ClassName="red" />
+            <DashboardBar Label="Callbacks" Value="@(_contactSummary?.CallbackPendingCount ?? 0)" Max="@MaxContactValue" ClassName="blue" />
+        </div>
+
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Operating Notes</h3>
+                <span>Commercial readiness</span>
+            </div>
+            <ol class="timeline">
+                <li>Keep packages current so users can book fixed-price services.</li>
+                <li>Bid only when your zone and schedule match the request.</li>
+                <li>Use Request Callback for follow-up that needs admin-approved contact sharing.</li>
+            </ol>
+        </div>
+    </section>
+</div>
 
 @code {
-    private bool _isAuthenticated;
-    private string? _role;
+    private bool _loading = true;
+    private string? _error;
+    private int _availableCount;
+    private int _bidCount;
+    private int _orderCount;
+    private ContactRequestSummaryDto? _contactSummary;
+
+    private int MaxProviderValue => Math.Max(1, new[] { _availableCount, _bidCount, _orderCount }.Max());
+
+    private int MaxContactValue => Math.Max(1, new[]
+    {
+        _contactSummary?.PendingCount ?? 0,
+        _contactSummary?.ApprovedCount ?? 0,
+        _contactSummary?.RejectedCount ?? 0,
+        _contactSummary?.CallbackPendingCount ?? 0
+    }.Max());
+
+    private void GoToAvailableRequests() => Nav.NavigateTo("/provider/available-requests");
+    private void GoToMyBids() => Nav.NavigateTo("/provider/my-bids");
+    private void GoToServiceOrders() => Nav.NavigateTo("/provider/service-orders");
+    private void GoToServicePackages() => Nav.NavigateTo("/provider/service-packages");
+    private void GoToProfiles() => Nav.NavigateTo("/profiles/search");
+    private void GoToContactRequests() => Nav.NavigateTo("/contact-requests");
 
     protected override async Task OnInitializedAsync()
     {
-        _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
-
-        if (!_isAuthenticated)
+        if (!await AuthState.IsAuthenticatedAsync())
         {
             Nav.NavigateTo("/login", forceLoad: false);
             return;
         }
 
-        if (!string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        if (!await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider))
         {
             await Redirector.RedirectToDashboardAsync();
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            var available = await RequestsClient.GetAvailableRequestsAsync();
+            var bids = await BidsClient.GetMyBidsAsync();
+            var orders = await OrdersClient.GetProviderOrdersAsync();
+
+            _availableCount = available.Count;
+            _bidCount = bids.Count;
+            _orderCount = orders.Count;
+            _contactSummary = await ContactClient.GetSummaryAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
         }
     }
-
-    private void GoToAvailableRequests()
-    {
-        Nav.NavigateTo("/provider/available-requests");
-    }
-
-    private void GoToMyBids()
-    {
-        Nav.NavigateTo("/provider/my-bids");
-    }
 }
-
-<div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Provider Dashboard</h2>
-        <LogoutButton />
-    </div>
-
-    <AuthorizeView Roles="@RoleNames.Provider">
-        <Authorized>
-            <div class="alert alert-info mb-3" role="alert">
-                <strong>Browse & Bid on Service Requests</strong>
-                <p class="mb-0">View nearby service requests and place competitive bids.</p>
-            </div>
-
-            <div class="row">
-                <div class="col-md-8">
-                    <div class="card">
-                        <div class="card-header bg-primary text-white">
-                            <h5 class="mb-0">Quick Actions</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="d-grid gap-2">
-                                <button class="btn btn-lg btn-primary" type="button" @onclick="GoToAvailableRequests">
-                                    <i class="bi bi-search me-2"></i>
-                                    Browse Available Requests
-                                </button>
-                                <button class="btn btn-lg btn-outline-primary" type="button" @onclick="GoToMyBids">
-                                    <i class="bi bi-bookmark-check me-2"></i>
-                                    View My Bids
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Authorized>
-        <NotAuthorized>
-            <div class="alert alert-warning" role="alert">
-                <strong>Unauthorized Access</strong>
-                <p class="mb-0">You do not have permission to view this page. Redirecting...</p>
-            </div>
-        </NotAuthorized>
-    </AuthorizeView>
-</div>
-

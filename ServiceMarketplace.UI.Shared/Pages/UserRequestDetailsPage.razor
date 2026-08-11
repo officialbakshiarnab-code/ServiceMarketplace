@@ -1,4 +1,5 @@
 @page "/user/requests/{RequestId:guid}"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.Domain.Enums
 @using ServiceMarketplace.UI.Shared.Auth
@@ -13,7 +14,7 @@
     public Guid RequestId { get; set; }
 
     private bool _isAuthenticated;
-    private string? _role;
+    private bool _hasServiceCustomerCapability;
     private bool _loading = true;
     private string? _error;
     private ServiceRequestDto? _request;
@@ -23,7 +24,7 @@
     protected override async Task OnInitializedAsync()
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
+        _hasServiceCustomerCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer);
 
         if (!_isAuthenticated)
         {
@@ -31,7 +32,7 @@
             return;
         }
 
-        if (!string.Equals(_role, RoleNames.User, StringComparison.Ordinal))
+        if (!_hasServiceCustomerCapability)
         {
             Nav.NavigateTo("/user/dashboard", forceLoad: false);
             return;
@@ -82,7 +83,7 @@
         <button class="btn btn-link" @onclick="GoBack">Back</button>
     </div>
 
-    <AuthorizeView Roles="@RoleNames.User">
+    <AuthorizeView>
         <Authorized>
             @if (_loading)
             {
@@ -151,8 +152,23 @@
                                         <div class="list-group-item">
                                             <div class="d-flex w-100 justify-content-between">
                                                 <div>
-                                                    <h6 class="mb-1">$@bid.Amount.ToString("0.00")</h6>
+                                                    <h6 class="mb-1">#@bid.ComparisonRank @bid.ProviderDisplayName</h6>
+                                                    <p class="mb-1 small">
+                                                        <strong>Bid:</strong> $@bid.Amount.ToString("0.00")
+                                                        @if (bid.ProviderHourlyRate.HasValue)
+                                                        {
+                                                            <span class="text-muted"> | Rate: $@bid.ProviderHourlyRate.Value.ToString("0.00")/hr</span>
+                                                        }
+                                                    </p>
+                                                    @if (!string.IsNullOrWhiteSpace(bid.ProviderBusinessName))
+                                                    {
+                                                        <p class="mb-1 small text-muted">@bid.ProviderBusinessName</p>
+                                                    }
                                                     <p class="mb-1 small text-muted">Proposed: @bid.ProposedDateTime.ToLocalTime().ToString("g")</p>
+                                                    @if (bid.EstimatedDurationMinutes.HasValue)
+                                                    {
+                                                        <p class="mb-1 small text-muted">Estimated duration: @bid.EstimatedDurationMinutes.Value minutes</p>
+                                                    }
                                                     @if (!string.IsNullOrWhiteSpace(bid.Message))
                                                     {
                                                         <p class="mb-0 small">@bid.Message</p>

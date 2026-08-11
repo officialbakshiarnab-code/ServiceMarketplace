@@ -1,0 +1,191 @@
+@page "/account/seller-application"
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Requests
+@inject SellerApplicationsApiClient SellerApplicationsClient
+@inject ServiceCatalogApiClient CatalogClient
+@inject NavigationManager Nav
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Seller Application</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading...</p>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <div class="alert alert-success" role="alert">@_message</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="mb-1">Status</h5>
+                        <p class="mb-0 text-muted">@(_application?.Status.ToString() ?? "Not started")</p>
+                    </div>
+                    @if (_application?.ReviewedAt != null)
+                    {
+                        <small class="text-muted">Reviewed @_application.ReviewedAt.Value.ToLocalTime().ToString("g")</small>
+                    }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_application?.ReviewNotes) || !string.IsNullOrWhiteSpace(_application?.RejectionReason))
+                {
+                    <hr />
+                    <p class="mb-1">@_application?.ReviewNotes</p>
+                    <p class="mb-0 text-danger">@_application?.RejectionReason</p>
+                }
+            </div>
+        </div>
+
+        <EditForm Model="_model" OnValidSubmit="SaveAsync">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Store name</label>
+                    <InputText class="form-control" @bind-Value="_model.StoreName" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Business name</label>
+                    <InputText class="form-control" @bind-Value="_model.BusinessName" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">GSTIN</label>
+                    <InputText class="form-control" @bind-Value="_model.Gstin" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Zone</label>
+                    <InputSelect class="form-select" @bind-Value="_model.ServiceZoneId">
+                        <option value="">Select a zone</option>
+                        @foreach (var zone in _zones)
+                        {
+                            <option value="@zone.Id">@zone.DisplayName</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Store description</label>
+                    <InputTextArea class="form-control" rows="3" @bind-Value="_model.Description" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Pickup address</label>
+                    <InputText class="form-control" @bind-Value="_model.PickupAddress" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">City</label>
+                    <InputText class="form-control" @bind-Value="_model.City" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">State</label>
+                    <InputText class="form-control" @bind-Value="_model.State" />
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_model.IdentityVerificationSubmitted" />
+                        <label class="form-check-label">Identity verification submitted</label>
+                    </div>
+                    <div class="form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_model.AddressVerificationSubmitted" />
+                        <label class="form-check-label">Address verification submitted</label>
+                    </div>
+                    <div class="form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_model.BusinessVerificationSubmitted" />
+                        <label class="form-check-label">Business verification submitted</label>
+                    </div>
+                </div>
+                <div class="col-12 d-flex gap-2">
+                    <button class="btn btn-primary" type="submit" disabled="@_saving">Save</button>
+                    <button class="btn btn-success" type="button" @onclick="SubmitAsync" disabled="@_saving">Submit</button>
+                </div>
+            </div>
+        </EditForm>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private string? _message;
+    private string? _error;
+    private SellerApplicationDto? _application;
+    private UpsertSellerApplicationDto _model = new();
+    private List<ServiceZoneDto> _zones = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _zones = await CatalogClient.GetZonesAsync();
+            _application = await SellerApplicationsClient.GetMineAsync();
+            if (_application != null)
+                LoadModel(_application);
+            else
+                _model = new UpsertSellerApplicationDto { City = "Kolkata", State = "West Bengal" };
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load seller application.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync() => await SaveCoreAsync(submit: false);
+
+    private async Task SubmitAsync() => await SaveCoreAsync(submit: true);
+
+    private async Task SaveCoreAsync(bool submit)
+    {
+        _saving = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            _application = await SellerApplicationsClient.UpsertMineAsync(_model);
+            if (submit)
+                _application = await SellerApplicationsClient.SubmitMineAsync();
+
+            LoadModel(_application);
+            _message = submit ? "Seller application submitted." : "Seller application saved.";
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to save seller application.");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void LoadModel(SellerApplicationDto application)
+    {
+        _model = new UpsertSellerApplicationDto
+        {
+            StoreName = application.StoreName,
+            BusinessName = application.BusinessName,
+            Description = application.Description,
+            Gstin = application.Gstin,
+            PickupAddress = application.PickupAddress,
+            City = application.City,
+            State = application.State,
+            ServiceZoneId = application.ServiceZoneId,
+            IdentityVerificationSubmitted = application.IdentityVerificationSubmitted,
+            AddressVerificationSubmitted = application.AddressVerificationSubmitted,
+            BusinessVerificationSubmitted = application.BusinessVerificationSubmitted
+        };
+    }
+
+    private void GoBack() => Nav.NavigateTo("/user/dashboard");
+}

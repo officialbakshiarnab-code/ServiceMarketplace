@@ -1,7 +1,6 @@
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -40,34 +39,32 @@ var securitySettings = builder.Configuration
     .Get<SecuritySettings>() ?? new SecuritySettings();
 
 builder.Logging.AddConsole();
-var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-logger.LogInformation("CORS allowed origins: {Origins}", string.Join(", ", corsSettings.AllowedOrigins));
-logger.LogInformation("HTTPS enforcement: {EnforceHttps}", securitySettings.EnforceHttps);
-logger.LogInformation("HSTS enabled: {UseHsts}", securitySettings.UseHsts);
+
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey))
+    throw new InvalidOperationException("JWT signing key is not configured. Set Jwt:Key through user secrets or environment variables.");
+
+if (!builder.Environment.IsEnvironment("Testing") &&
+    jwtKey.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("JWT signing key is a placeholder. Configure a real secret outside source control.");
+}
+
+if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+    throw new InvalidOperationException("JWT signing key must be at least 32 bytes.");
 
 // ==============================
 // DATABASE
 // ==============================
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+    options.UseNpgsql(connectionString);
     options.AddInterceptors(new AuditInterceptor());
 });
-
-// ==============================
-// IDENTITY
-// ==============================
-builder.Services.AddIdentityCore<IdentityUser>(options =>
-{
-    options.Password.RequiredLength = 6;
-    options.Password.RequireDigit = true;
-    options.Password.RequireUppercase = true;
-    options.Password.RequireLowercase = true;
-    options.Password.RequireNonAlphanumeric = true;
-})
-    .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<AppDbContext>()
-    .AddDefaultTokenProviders();
 
 // ==============================
 // JWT AUTHENTICATION
@@ -90,7 +87,7 @@ builder.Services.AddAuthentication(options =>
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
+            Encoding.UTF8.GetBytes(jwtKey)
         )
     };
 
@@ -150,25 +147,30 @@ builder.Services.AddAuthentication(options =>
 // ==============================
 builder.Services.AddAuthorization(options =>
 {
-    // Default require User role - can create requests, accept bids
     options.AddPolicy("UserOnly", policy =>
-        policy.RequireRole(RoleConstants.User));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer));
 
-    // Default require ServiceProvider role - can browse, bid
     options.AddPolicy("ProviderOnly", policy =>
-        policy.RequireRole(RoleConstants.ServiceProvider));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceProvider));
 
-    // Users with Both role can access both User and Provider features
     options.AddPolicy("UserOrBoth", policy =>
-        policy.RequireRole(RoleConstants.User, RoleConstants.Both));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer));
 
-    // Providers and Both users can bid
     options.AddPolicy("ProviderOrBoth", policy =>
-        policy.RequireRole(RoleConstants.ServiceProvider, RoleConstants.Both));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceProvider));
 
-    // Dual-role users (Both) have full access
     options.AddPolicy("BothRoleOnly", policy =>
-        policy.RequireRole(RoleConstants.Both));
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer)
+            .RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceProvider));
+
+    options.AddPolicy("ProductBuyerOnly", policy =>
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ProductBuyer));
+
+    options.AddPolicy("ProductSellerOnly", policy =>
+        policy.RequireClaim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ProductSeller));
+
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireClaim(AdministrativePermissionConstants.ClaimType, AdministrativePermissionConstants.PlatformAdmin));
 });
 
 // ==============================
@@ -183,11 +185,11 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 100, // 100 requests
-                Window = TimeSpan.FromMinutes(1), // per minute
-                SegmentsPerWindow = 6, // divided into 6 segments (10 seconds each)
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0 // No queuing, reject immediately
+                QueueLimit = 0
             });
     });
 
@@ -198,8 +200,8 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 5, // 5 attempts
-                Window = TimeSpan.FromMinutes(1), // per minute
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -212,8 +214,8 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 10, // 10 refreshes
-                Window = TimeSpan.FromMinutes(1), // per minute
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -231,9 +233,9 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: userId,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 10, // 10 bids
-                Window = TimeSpan.FromMinutes(5), // per 5 minutes
-                SegmentsPerWindow = 5, // 1 minute segments
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(5),
+                SegmentsPerWindow = 5,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -251,9 +253,9 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: userId,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 5, // 5 requests
-                Window = TimeSpan.FromMinutes(10), // per 10 minutes
-                SegmentsPerWindow = 10, // 1 minute segments
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                SegmentsPerWindow = 10,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
@@ -270,8 +272,8 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: userId,
             factory: _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 200, // 200 requests
-                Window = TimeSpan.FromMinutes(1), // per minute
+                PermitLimit = 200,
+                Window = TimeSpan.FromMinutes(1),
                 SegmentsPerWindow = 6,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -311,11 +313,6 @@ builder.Services.AddCors(options =>
         .AllowAnyMethod()
         .AllowCredentials();
         
-        // Log CORS configuration for security audit
-        foreach (var origin in corsSettings.AllowedOrigins)
-        {
-            logger.LogInformation("CORS origin allowed: {Origin}", origin);
-        }
     });
 });
 
@@ -350,22 +347,29 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
         : CookieSecurePolicy.SameAsRequest;
 });
 
-// Configure ASP.NET Identity cookie security
-builder.Services.ConfigureApplicationCookie(options =>
-{
-    options.Cookie.HttpOnly = true;
-    options.Cookie.SecurePolicy = securitySettings.EnforceHttps 
-        ? CookieSecurePolicy.Always 
-        : CookieSecurePolicy.SameAsRequest;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-});
-
 // ==============================
 // APPLICATION SERVICES
 // ==============================
 builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
 builder.Services.AddScoped<IBidService, BidService>();
-builder.Services.AddScoped<INotificationService, EmailNotificationService>();
+builder.Services.AddScoped<IProviderApplicationService, ProviderApplicationService>();
+builder.Services.AddScoped<IServiceCatalogService, ServiceCatalogService>();
+builder.Services.AddScoped<IServiceOrderService, ServiceOrderService>();
+builder.Services.AddScoped<IServiceOrderCommunicationService, ServiceOrderCommunicationService>();
+builder.Services.AddScoped<IServiceOrderPaymentService, ServiceOrderPaymentService>();
+builder.Services.AddScoped<IServiceOrderReviewService, ServiceOrderReviewService>();
+builder.Services.AddScoped<IServiceOrderAuditService, ServiceOrderAuditService>();
+builder.Services.AddScoped<IServicePackageService, ServicePackageService>();
+builder.Services.AddScoped<ISellerApplicationService, SellerApplicationService>();
+builder.Services.AddScoped<IProductCatalogService, ProductCatalogService>();
+builder.Services.AddScoped<IProductListingService, ProductListingService>();
+builder.Services.AddScoped<IProductDeliveryOrderService, ProductDeliveryOrderService>();
+builder.Services.AddScoped<IMarketplaceEconomicsService, MarketplaceEconomicsService>();
+builder.Services.AddScoped<IMarketplaceSearchService, MarketplaceSearchService>();
+builder.Services.AddScoped<IProfileDirectoryService, ProfileDirectoryService>();
+builder.Services.AddScoped<IContactRequestService, ContactRequestService>();
+builder.Services.AddScoped<INotificationService, MarketplaceNotificationService>();
+builder.Services.AddScoped<INotificationInboxService, MarketplaceNotificationService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenRefreshService, TokenRefreshService>();
@@ -387,7 +391,7 @@ builder.Services.AddHostedService<ServiceMarketplace.API.BackgroundServices.Audi
 builder.Services.AddHealthChecks()
     .AddCheck<ServiceMarketplace.API.HealthChecks.DatabaseHealthCheck>(
         "database",
-        tags: new[] { "db", "sql", "ready" })
+        tags: new[] { "db", "postgres", "ready" })
     .AddCheck<ServiceMarketplace.API.HealthChecks.AuthSubsystemHealthCheck>(
         "auth_subsystem",
         tags: new[] { "auth", "identity", "ready" })
@@ -440,6 +444,10 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+app.Logger.LogInformation("CORS allowed origins: {Origins}", string.Join(", ", corsSettings.AllowedOrigins));
+app.Logger.LogInformation("HTTPS enforcement: {EnforceHttps}", securitySettings.EnforceHttps);
+app.Logger.LogInformation("HSTS enabled: {UseHsts}", securitySettings.UseHsts);
+
 // ==============================
 // DATABASE MIGRATION (DEVELOPMENT ONLY)
 // ==============================
@@ -461,24 +469,11 @@ if (app.Environment.IsDevelopment())
     }
 }
 
-// ==============================
 // ROLE SEEDING (APPLICATION STARTUP)
-// ==============================
-// Seed all required roles (User, ServiceProvider, Admin) once during startup
-// This ensures roles exist before any registration attempts
 using (var scope = app.Services.CreateScope())
 {
     var roleSeedingService = scope.ServiceProvider.GetRequiredService<ServiceMarketplace.API.Services.RoleSeedingService>();
-    try
-    {
-        await roleSeedingService.SeedRolesAsync();
-        app.Logger.LogInformation("Roles seeded successfully");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "Error seeding roles during application startup");
-        throw;
-    }
+    await roleSeedingService.SeedRolesAsync();
 }
 
 // ==============================
@@ -516,7 +511,10 @@ if (securitySettings.EnforceHttps)
 app.UseCors();
 
 // Apply rate limiting before authentication
-app.UseRateLimiter();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseRateLimiter();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -548,4 +546,6 @@ app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthC
 });
 
 app.Run();
+
+public partial class Program;
 

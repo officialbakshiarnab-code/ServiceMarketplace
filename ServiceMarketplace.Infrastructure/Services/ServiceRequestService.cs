@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using ServiceMarketplace.Application.Constants;
 using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Exceptions;
 using ServiceMarketplace.Application.Interfaces;
@@ -13,11 +14,16 @@ public class ServiceRequestService : IServiceRequestService
 {
     private readonly AppDbContext _context;
     private readonly INotificationService _notificationService;
+    private readonly IServiceOrderAuditService _auditService;
 
-    public ServiceRequestService(AppDbContext context, INotificationService notificationService)
+    public ServiceRequestService(
+        AppDbContext context,
+        INotificationService notificationService,
+        IServiceOrderAuditService auditService)
     {
         _context = context;
         _notificationService = notificationService;
+        _auditService = auditService;
     }
 
     public async Task<Guid> CreateAsync(CreateServiceRequestDto dto, string userId)
@@ -25,15 +31,42 @@ public class ServiceRequestService : IServiceRequestService
         if (string.IsNullOrWhiteSpace(userId))
             throw new UnauthorizedAccessException("Authentication is required.");
 
+        ServiceCategory? category = null;
+        if (dto.ServiceCategoryId.HasValue)
+        {
+            category = await _context.ServiceCategories
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == dto.ServiceCategoryId.Value && c.IsActive);
+
+            if (category == null)
+                throw new BadRequestException("Selected service category is not available.");
+        }
+
+        ServiceZone? zone = null;
+        if (dto.ServiceZoneId.HasValue)
+        {
+            zone = await _context.ServiceZones
+                .AsNoTracking()
+                .FirstOrDefaultAsync(z => z.Id == dto.ServiceZoneId.Value && z.IsActive);
+
+            if (zone == null)
+                throw new BadRequestException("Selected service zone is not available.");
+        }
+
         var request = new ServiceRequest
         {
             CustomerId = userId,
             Title = dto.Title,
             Description = dto.Description,
-            Category = dto.Category,
+            Category = category?.Name ?? dto.Category,
+            ServiceCategoryId = category?.Id,
             Location = dto.Location,
+            ServiceZoneId = zone?.Id,
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
+            Urgency = dto.Urgency,
+            PreferredStartAt = dto.PreferredStartAt,
+            Requirements = dto.Requirements,
             Status = ServiceRequestStatus.Open
         };
 
@@ -45,40 +78,90 @@ public class ServiceRequestService : IServiceRequestService
         return request.Id;
     }
 
-    public async Task<IEnumerable<ServiceRequestDto>> GetOpenAsync()
+    public async Task<IEnumerable<ProviderServiceRequestDto>> GetOpenAsync(string providerUserId)
     {
-        return await _context.ServiceRequests
-            .Where(r => r.Status == ServiceRequestStatus.Open)
+        var providerProfile = await EnsureApprovedProviderAsync(providerUserId);
+
+        var query = _context.ServiceRequests
+            .AsNoTracking()
+            .Where(r => r.Status == ServiceRequestStatus.Open && r.CustomerId != providerUserId);
+
+        query = ApplyProviderCoverageFilter(query, providerProfile);
+
+        var requests = await query
             .OrderByDescending(r => r.CreatedAt)
-            .Select(r => new ServiceRequestDto
+            .Select(r => new
             {
-                Id = r.Id,
-                CustomerId = r.CustomerId,
-                Title = r.Title,
-                Description = r.Description,
-                Category = r.Category,
-                Location = r.Location,
-                Latitude = r.Latitude,
-                Longitude = r.Longitude,
-                Status = r.Status,
+                r.Id,
+                r.Title,
+                r.Description,
+                r.Category,
+                r.ServiceCategoryId,
+                ServiceCategoryName = r.ServiceCategory != null ? r.ServiceCategory.Name : null,
+                r.Location,
+                r.ServiceZoneId,
+                ServiceZoneName = r.ServiceZone != null ? r.ServiceZone.DisplayName : null,
+                r.Status,
+                r.Urgency,
+                r.PreferredStartAt,
                 BidCount = r.Bids.Count,
-                CreatedAt = r.CreatedAt,
-                UpdatedAt = r.UpdatedAt
+                r.CreatedAt,
+                r.UpdatedAt
             })
             .ToListAsync();
+
+        return requests.Select(r => new ProviderServiceRequestDto
+        {
+            Id = r.Id,
+            Title = r.Title,
+            Description = r.Description,
+            Category = r.Category,
+            ServiceCategoryId = r.ServiceCategoryId,
+            ServiceCategoryName = r.ServiceCategoryName,
+            ApproximateLocation = ToProviderLocation(r.ServiceZoneName, r.Location),
+            ServiceZoneId = r.ServiceZoneId,
+            ServiceZoneName = r.ServiceZoneName,
+            Status = r.Status,
+            Urgency = r.Urgency,
+            PreferredStartAt = r.PreferredStartAt,
+            BidCount = r.BidCount,
+            CreatedAt = r.CreatedAt,
+            UpdatedAt = r.UpdatedAt
+        });
     }
 
-    public async Task<List<ServiceRequestDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm)
+    public async Task<List<ProviderServiceRequestDto>> GetNearbyAsync(string providerUserId, double latitude, double longitude, double radiusKm)
     {
+        var providerProfile = await EnsureApprovedProviderAsync(providerUserId);
+
         const double EarthRadiusKm = 6371.0;
         var latRad = latitude * (Math.PI / 180.0);
         var lonRad = longitude * (Math.PI / 180.0);
 
-        return await _context.ServiceRequests
-            .Where(r => r.Status == ServiceRequestStatus.Open)
+        var query = _context.ServiceRequests
+            .AsNoTracking()
+            .Where(r => r.Status == ServiceRequestStatus.Open && r.CustomerId != providerUserId);
+
+        query = ApplyProviderCoverageFilter(query, providerProfile);
+
+        var nearbyRequests = await query
             .Select(r => new
             {
-                Request = r,
+                r.Id,
+                r.Title,
+                r.Description,
+                r.Category,
+                r.ServiceCategoryId,
+                ServiceCategoryName = r.ServiceCategory != null ? r.ServiceCategory.Name : null,
+                r.Location,
+                r.ServiceZoneId,
+                ServiceZoneName = r.ServiceZone != null ? r.ServiceZone.DisplayName : null,
+                r.Status,
+                r.Urgency,
+                r.PreferredStartAt,
+                BidCount = r.Bids.Count,
+                r.CreatedAt,
+                r.UpdatedAt,
                 DistanceKm = EarthRadiusKm * 2.0 * Math.Asin(
                     Math.Sqrt(
                         Math.Pow(Math.Sin((((r.Latitude * (Math.PI / 180.0)) - latRad) / 2.0)), 2.0) +
@@ -89,23 +172,28 @@ public class ServiceRequestService : IServiceRequestService
             })
             .Where(x => x.DistanceKm <= radiusKm)
             .OrderBy(x => x.DistanceKm)
-            .Select(x => new ServiceRequestDto
-            {
-                Id = x.Request.Id,
-                CustomerId = x.Request.CustomerId,
-                Title = x.Request.Title,
-                Description = x.Request.Description,
-                Category = x.Request.Category,
-                Location = x.Request.Location,
-                Latitude = x.Request.Latitude,
-                Longitude = x.Request.Longitude,
-                Status = x.Request.Status,
-                DistanceKm = x.DistanceKm,
-                BidCount = x.Request.Bids.Count,
-                CreatedAt = x.Request.CreatedAt,
-                UpdatedAt = x.Request.UpdatedAt
-            })
             .ToListAsync();
+
+        return nearbyRequests.Select(x => new ProviderServiceRequestDto
+            {
+                Id = x.Id,
+                Title = x.Title,
+                Description = x.Description,
+                Category = x.Category,
+                ServiceCategoryId = x.ServiceCategoryId,
+                ServiceCategoryName = x.ServiceCategoryName,
+                ApproximateLocation = ToProviderLocation(x.ServiceZoneName, x.Location),
+                ServiceZoneId = x.ServiceZoneId,
+                ServiceZoneName = x.ServiceZoneName,
+                Status = x.Status,
+                Urgency = x.Urgency,
+                PreferredStartAt = x.PreferredStartAt,
+                DistanceKm = x.DistanceKm,
+                BidCount = x.BidCount,
+                CreatedAt = x.CreatedAt,
+                UpdatedAt = x.UpdatedAt
+            })
+            .ToList();
     }
 
     public async Task<List<ServiceRequestDto>> GetMyRequestsAsync(string userId)
@@ -123,10 +211,17 @@ public class ServiceRequestService : IServiceRequestService
                 Title = r.Title,
                 Description = r.Description,
                 Category = r.Category,
+                ServiceCategoryId = r.ServiceCategoryId,
+                ServiceCategoryName = r.ServiceCategory != null ? r.ServiceCategory.Name : null,
                 Location = r.Location,
+                ServiceZoneId = r.ServiceZoneId,
+                ServiceZoneName = r.ServiceZone != null ? r.ServiceZone.DisplayName : null,
                 Latitude = r.Latitude,
                 Longitude = r.Longitude,
                 Status = r.Status,
+                Urgency = r.Urgency,
+                PreferredStartAt = r.PreferredStartAt,
+                Requirements = r.Requirements,
                 BidCount = r.Bids.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt
@@ -134,30 +229,59 @@ public class ServiceRequestService : IServiceRequestService
             .ToListAsync();
     }
 
-    public async Task<List<ServiceRequestDto>> GetAvailableForProviderAsync(string providerUserId)
+    public async Task<List<ProviderServiceRequestDto>> GetAvailableForProviderAsync(string providerUserId)
     {
         if (string.IsNullOrWhiteSpace(providerUserId))
-            return new List<ServiceRequestDto>();
+            return new List<ProviderServiceRequestDto>();
 
-        return await _context.ServiceRequests
-            .Where(r => r.Status == ServiceRequestStatus.Open && r.CustomerId != providerUserId)
+        var providerProfile = await EnsureApprovedProviderAsync(providerUserId);
+
+        var query = _context.ServiceRequests
+            .AsNoTracking()
+            .Where(r => r.Status == ServiceRequestStatus.Open && r.CustomerId != providerUserId);
+
+        query = ApplyProviderCoverageFilter(query, providerProfile);
+
+        var requests = await query
             .OrderByDescending(r => r.CreatedAt)
-            .Select(r => new ServiceRequestDto
+            .Select(r => new
             {
-                Id = r.Id,
-                CustomerId = r.CustomerId,
-                Title = r.Title,
-                Description = r.Description,
-                Category = r.Category,
-                Location = r.Location,
-                Latitude = r.Latitude,
-                Longitude = r.Longitude,
-                Status = r.Status,
+                r.Id,
+                r.Title,
+                r.Description,
+                r.Category,
+                r.ServiceCategoryId,
+                ServiceCategoryName = r.ServiceCategory != null ? r.ServiceCategory.Name : null,
+                r.Location,
+                r.ServiceZoneId,
+                ServiceZoneName = r.ServiceZone != null ? r.ServiceZone.DisplayName : null,
+                r.Status,
+                r.Urgency,
+                r.PreferredStartAt,
                 BidCount = r.Bids.Count,
-                CreatedAt = r.CreatedAt,
-                UpdatedAt = r.UpdatedAt
+                r.CreatedAt,
+                r.UpdatedAt
             })
             .ToListAsync();
+
+        return requests.Select(r => new ProviderServiceRequestDto
+        {
+            Id = r.Id,
+            Title = r.Title,
+            Description = r.Description,
+            Category = r.Category,
+            ServiceCategoryId = r.ServiceCategoryId,
+            ServiceCategoryName = r.ServiceCategoryName,
+            ApproximateLocation = ToProviderLocation(r.ServiceZoneName, r.Location),
+            ServiceZoneId = r.ServiceZoneId,
+            ServiceZoneName = r.ServiceZoneName,
+            Status = r.Status,
+            Urgency = r.Urgency,
+            PreferredStartAt = r.PreferredStartAt,
+            BidCount = r.BidCount,
+            CreatedAt = r.CreatedAt,
+            UpdatedAt = r.UpdatedAt
+        }).ToList();
     }
 
     public async Task<ServiceRequestDto> GetByIdForUserAsync(Guid requestId, string userId)
@@ -174,10 +298,17 @@ public class ServiceRequestService : IServiceRequestService
                 Title = r.Title,
                 Description = r.Description,
                 Category = r.Category,
+                ServiceCategoryId = r.ServiceCategoryId,
+                ServiceCategoryName = r.ServiceCategory != null ? r.ServiceCategory.Name : null,
                 Location = r.Location,
+                ServiceZoneId = r.ServiceZoneId,
+                ServiceZoneName = r.ServiceZone != null ? r.ServiceZone.DisplayName : null,
                 Latitude = r.Latitude,
                 Longitude = r.Longitude,
                 Status = r.Status,
+                Urgency = r.Urgency,
+                PreferredStartAt = r.PreferredStartAt,
+                Requirements = r.Requirements,
                 BidCount = r.Bids.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt
@@ -190,38 +321,68 @@ public class ServiceRequestService : IServiceRequestService
         return request;
     }
 
-    public async Task<ServiceRequestDto> GetByIdForProviderAsync(Guid requestId, string providerId)
+    public async Task<ProviderServiceRequestDto> GetByIdForProviderAsync(Guid requestId, string providerId)
     {
         if (string.IsNullOrWhiteSpace(providerId))
             throw new ForbiddenException("Provider ID is required");
 
+        var providerProfile = await EnsureApprovedProviderAsync(providerId);
+
         var request = await _context.ServiceRequests
-            .Where(r => r.Id == requestId && r.Status == ServiceRequestStatus.Open)
-            .Select(r => new ServiceRequestDto
+            .AsNoTracking()
+            .Where(r => r.Id == requestId && r.CustomerId != providerId)
+            .Select(r => new
             {
-                Id = r.Id,
-                CustomerId = r.CustomerId,
-                Title = r.Title,
-                Description = r.Description,
-                Category = r.Category,
-                Location = r.Location,
-                Latitude = r.Latitude,
-                Longitude = r.Longitude,
-                Status = r.Status,
+                r.Id,
+                r.Title,
+                r.Description,
+                r.Category,
+                r.ServiceCategoryId,
+                ServiceCategoryName = r.ServiceCategory != null ? r.ServiceCategory.Name : null,
+                r.Location,
+                r.ServiceZoneId,
+                ServiceZoneName = r.ServiceZone != null ? r.ServiceZone.DisplayName : null,
+                r.Status,
+                r.Urgency,
+                r.PreferredStartAt,
+                IsAcceptedForProvider = r.Bids.Any(b => b.ServiceProviderId == providerId && b.Status == BidStatus.Accepted),
+                r.Latitude,
+                r.Longitude,
                 BidCount = r.Bids.Count,
-                CreatedAt = r.CreatedAt,
-                UpdatedAt = r.UpdatedAt
+                r.CreatedAt,
+                r.UpdatedAt
             })
             .FirstOrDefaultAsync();
 
-        if (request == null)
+        if (request == null ||
+            (request.Status != ServiceRequestStatus.Open && !request.IsAcceptedForProvider) ||
+            (request.Status == ServiceRequestStatus.Open && !CanServeRequest(providerProfile, request.ServiceCategoryId, request.ServiceCategoryName, request.Category, request.ServiceZoneId, request.ServiceZoneName, request.Location)))
+        {
             throw new NotFoundException("Service request not found or not available for bidding");
+        }
 
-        // Providers cannot bid on their own requests
-        if (request.CustomerId == providerId)
-            throw new ForbiddenException("Cannot view or bid on your own request");
-
-        return request;
+        return new ProviderServiceRequestDto
+        {
+            Id = request.Id,
+            Title = request.Title,
+            Description = request.Description,
+            Category = request.Category,
+            ServiceCategoryId = request.ServiceCategoryId,
+            ServiceCategoryName = request.ServiceCategoryName,
+            ApproximateLocation = ToProviderLocation(request.ServiceZoneName, request.Location),
+            ExactLocation = request.IsAcceptedForProvider ? request.Location : null,
+            ServiceZoneId = request.ServiceZoneId,
+            ServiceZoneName = request.ServiceZoneName,
+            Latitude = request.IsAcceptedForProvider ? request.Latitude : null,
+            Longitude = request.IsAcceptedForProvider ? request.Longitude : null,
+            IsExactLocationVisible = request.IsAcceptedForProvider,
+            Status = request.Status,
+            Urgency = request.Urgency,
+            PreferredStartAt = request.PreferredStartAt,
+            BidCount = request.BidCount,
+            CreatedAt = request.CreatedAt,
+            UpdatedAt = request.UpdatedAt
+        };
     }
 
     public async Task AcceptBidAsync(Guid requestId, Guid bidId, string userId)
@@ -246,6 +407,10 @@ public class ServiceRequestService : IServiceRequestService
         if (selectedBid == null)
             throw new NotFoundException("Bid not found");
 
+        var existingOrder = await _context.ServiceOrders.AnyAsync(o => o.ServiceRequestId == requestId);
+        if (existingOrder)
+            throw new BadRequestException("A service order already exists for this request");
+
         // Accept selected bid
         selectedBid.Status = BidStatus.Accepted;
 
@@ -255,9 +420,32 @@ public class ServiceRequestService : IServiceRequestService
 
         request.Status = ServiceRequestStatus.Accepted;
 
+        var order = new ServiceOrder
+        {
+            ServiceRequestId = request.Id,
+            AcceptedBidId = selectedBid.Id,
+            CustomerId = request.CustomerId,
+            ProviderId = selectedBid.ServiceProviderId,
+            AgreedAmount = selectedBid.Amount,
+            ScheduledStartAt = selectedBid.ProposedDateTime,
+            EstimatedDurationMinutes = selectedBid.EstimatedDurationMinutes,
+            Status = ServiceOrderStatus.PendingStart,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.ServiceOrders.Add(order);
+
         await _context.SaveChangesAsync();
 
+        await _auditService.RecordAsync(
+            order,
+            userId,
+            "Customer",
+            "ServiceOrderCreated",
+            null,
+            order.Status.ToString(),
+            $"Accepted bid {selectedBid.Id}.");
         await _notificationService.NotifyBidAcceptedAsync(selectedBid.Id);
+        await _notificationService.NotifyServiceOrderCreatedAsync(order.Id);
     }
 
     public async Task<UserDashboardStatsDto> GetDashboardStatsAsync(string userId)
@@ -301,5 +489,168 @@ public class ServiceRequestService : IServiceRequestService
             CompletedRequestsCount = requestStats.CompletedCount,
             TotalRequestsCount = requestStats.TotalCount
         };
+    }
+
+    private async Task<ServiceProviderProfile?> EnsureApprovedProviderAsync(string providerUserId)
+    {
+        if (string.IsNullOrWhiteSpace(providerUserId) || !Guid.TryParse(providerUserId, out var providerGuid))
+            throw new ForbiddenException("Provider approval is required before accessing provider request workflows");
+
+        var provider = await _context.Users
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == providerGuid);
+
+        var roles = provider?.UserRoles
+            .Select(ur => ur.Role.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList() ?? new List<string>();
+
+        var hasProviderCapability = MarketplaceCapabilityConstants.FromRoles(roles)
+            .Contains(MarketplaceCapabilityConstants.ServiceProvider);
+        var approvedProfileExists = await _context.ServiceProviderProfiles
+            .AsNoTracking()
+            .AnyAsync(p => p.UserId == providerGuid && p.Status == ProviderApplicationStatus.Approved);
+        var legacyApprovedProvider = provider?.IsKycApproved == true && hasProviderCapability;
+
+        if (provider == null ||
+            !hasProviderCapability ||
+            !provider.IsActive ||
+            (!approvedProfileExists && !legacyApprovedProvider))
+        {
+            throw new ForbiddenException("Provider approval is required before accessing provider request workflows");
+        }
+
+        var approvedProfile = await _context.ServiceProviderProfiles
+            .AsNoTracking()
+            .Include(p => p.ServiceCategory)
+            .Include(p => p.ServiceZone)
+            .FirstOrDefaultAsync(p => p.UserId == providerGuid && p.Status == ProviderApplicationStatus.Approved);
+
+        if (approvedProfile is { IsAvailable: false })
+            throw new ForbiddenException("Provider availability must be enabled before accessing provider request workflows");
+
+        return approvedProfile;
+    }
+
+    private static IQueryable<ServiceRequest> ApplyProviderCoverageFilter(
+        IQueryable<ServiceRequest> query,
+        ServiceProviderProfile? profile)
+    {
+        if (profile == null)
+            return query;
+
+        if (profile.ServiceCategoryId.HasValue)
+        {
+            var categoryId = profile.ServiceCategoryId.Value;
+            var categoryName = profile.PrimaryCategory.ToUpper();
+            query = query.Where(r =>
+                (r.ServiceCategoryId.HasValue && r.ServiceCategoryId == categoryId) ||
+                (!r.ServiceCategoryId.HasValue && r.Category.ToUpper() == categoryName));
+        }
+        else if (!string.IsNullOrWhiteSpace(profile.PrimaryCategory))
+        {
+            var categoryName = profile.PrimaryCategory.ToUpper();
+            query = query.Where(r =>
+                r.Category.ToUpper() == categoryName ||
+                (r.ServiceCategory != null && r.ServiceCategory.Name.ToUpper() == categoryName));
+        }
+
+        if (profile.ServiceZoneId.HasValue)
+        {
+            var zoneId = profile.ServiceZoneId.Value;
+            var zoneName = profile.ServiceAreaZone == null ? string.Empty : profile.ServiceAreaZone.ToUpper();
+            var city = profile.ServiceAreaCity.ToUpper();
+            var state = profile.ServiceAreaState.ToUpper();
+            query = query.Where(r =>
+                (r.ServiceZoneId.HasValue && r.ServiceZoneId == zoneId) ||
+                (!r.ServiceZoneId.HasValue && r.Location.ToUpper().Contains(city) && r.Location.ToUpper().Contains(state)) ||
+                (!r.ServiceZoneId.HasValue && zoneName != string.Empty && r.Location.ToUpper().Contains(zoneName)));
+        }
+        else
+        {
+            var zoneName = profile.ServiceAreaZone == null ? string.Empty : profile.ServiceAreaZone.ToUpper();
+            var city = profile.ServiceAreaCity.ToUpper();
+            var state = profile.ServiceAreaState.ToUpper();
+            query = query.Where(r =>
+                r.Location.ToUpper().Contains(city) ||
+                r.Location.ToUpper().Contains(state) ||
+                (zoneName != string.Empty && r.Location.ToUpper().Contains(zoneName)) ||
+                (r.ServiceZone != null &&
+                    (r.ServiceZone.City.ToUpper() == city ||
+                     r.ServiceZone.State.ToUpper() == state ||
+                     (zoneName != string.Empty && r.ServiceZone.DisplayName.ToUpper().Contains(zoneName)))));
+        }
+
+        return query;
+    }
+
+    private static bool CanServeRequest(
+        ServiceProviderProfile? profile,
+        Guid? requestCategoryId,
+        string? requestCategoryName,
+        string requestCategory,
+        Guid? requestZoneId,
+        string? requestZoneName,
+        string requestLocation)
+    {
+        if (profile == null)
+            return true;
+
+        if (profile.ServiceCategoryId.HasValue && requestCategoryId.HasValue && profile.ServiceCategoryId != requestCategoryId)
+            return false;
+
+        if (!profile.ServiceCategoryId.HasValue || !requestCategoryId.HasValue)
+        {
+            var providerCategory = profile.PrimaryCategory;
+            var categoryMatches =
+                string.Equals(providerCategory, requestCategory, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(providerCategory, requestCategoryName, StringComparison.OrdinalIgnoreCase);
+
+            if (!categoryMatches)
+                return false;
+        }
+
+        if (profile.ServiceZoneId.HasValue && requestZoneId.HasValue && profile.ServiceZoneId != requestZoneId)
+            return false;
+
+        if (!profile.ServiceZoneId.HasValue || !requestZoneId.HasValue)
+        {
+            var providerAreaParts = new[] { profile.ServiceAreaZone, profile.ServiceAreaCity, profile.ServiceAreaState }
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .ToList();
+
+            var areaMatches = providerAreaParts.Any(part =>
+                requestLocation.Contains(part!, StringComparison.OrdinalIgnoreCase) ||
+                (requestZoneName?.Contains(part!, StringComparison.OrdinalIgnoreCase) ?? false));
+
+            if (!areaMatches)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static string ToProviderLocation(string? serviceZoneName, string location)
+    {
+        return string.IsNullOrWhiteSpace(serviceZoneName)
+            ? ToApproximateLocation(location)
+            : serviceZoneName;
+    }
+
+    private static string ToApproximateLocation(string location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+            return "Nearby service area";
+
+        var parts = location
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+
+        if (parts.Count >= 2)
+            return string.Join(", ", parts.Skip(parts.Count - 2));
+
+        return "Nearby service area";
     }
 }

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Logging;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
@@ -16,6 +17,7 @@ namespace ServiceMarketplace.UI.Shared.Auth;
 /// </summary>
 public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStorage, ILogger<AuthApiClient> logger)
 {
+    private const long MaxGovernmentIdFileSizeBytes = 5 * 1024 * 1024;
     private readonly HttpClient _httpClient = httpClient;
     private readonly ITokenStorage _tokenStorage = tokenStorage;
     private readonly ILogger<AuthApiClient> _logger = logger;
@@ -154,13 +156,25 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
     /// <param name="request">Registration details including email, password, and role</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>RegisterResult with success flag and optional error message</returns>
-    public async Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
+    public async Task<RegisterResult> RegisterAsync(
+        RegisterRequest request,
+        IBrowserFile? governmentIdImage = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             _logger.LogInformation("[AuthApiClient] Registration attempt for {Email}", request.Email);
 
-            using var response = await _httpClient.PostAsJsonAsync("api/auth/register", request, cancellationToken);
+            using var multipartContent = governmentIdImage is null
+                ? null
+                : CreateMultipartRegisterContent(request, governmentIdImage);
+
+            using var response = governmentIdImage is null
+                ? await _httpClient.PostAsJsonAsync("api/auth/register", request, cancellationToken)
+                : await _httpClient.PostAsync(
+                    "api/auth/register",
+                    multipartContent,
+                    cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -192,6 +206,26 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
             _logger.LogError(ex, "[AuthApiClient] Unexpected error: {Message}", ex.Message);
             return RegisterResult.Failed(error);
         }
+    }
+
+    private static MultipartFormDataContent CreateMultipartRegisterContent(RegisterRequest request, IBrowserFile governmentIdImage)
+    {
+        var content = new MultipartFormDataContent
+        {
+            { new StringContent(request.Email), nameof(RegisterRequest.Email) },
+            { new StringContent(request.Password), nameof(RegisterRequest.Password) },
+            { new StringContent(request.FirstName), nameof(RegisterRequest.FirstName) },
+            { new StringContent(request.LastName), nameof(RegisterRequest.LastName) },
+            { new StringContent(request.DateOfBirth.ToString("yyyy-MM-dd")), nameof(RegisterRequest.DateOfBirth) },
+            { new StringContent(request.Role), nameof(RegisterRequest.Role) }
+        };
+
+        var fileContent = new StreamContent(governmentIdImage.OpenReadStream(MaxGovernmentIdFileSizeBytes));
+        if (!string.IsNullOrWhiteSpace(governmentIdImage.ContentType))
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(governmentIdImage.ContentType);
+
+        content.Add(fileContent, "GovernmentIdImage", governmentIdImage.Name);
+        return content;
     }
 
     /// <summary>

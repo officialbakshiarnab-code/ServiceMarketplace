@@ -19,5 +19,9 @@ public class CreateBidDtoValidator : AbstractValidator<CreateBidDto>
 
         RuleFor(x => x.Message)
             .MaximumLength(500);
+
+        RuleFor(x => x.EstimatedDurationMinutes)
+            .InclusiveBetween(1, 10080)
+            .When(x => x.EstimatedDurationMinutes.HasValue);
     }
 }

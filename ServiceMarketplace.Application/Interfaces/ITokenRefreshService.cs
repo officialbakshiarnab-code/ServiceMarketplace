@@ -18,7 +18,7 @@ public interface ITokenRefreshService
     /// Issues new refresh and access tokens at login.
     /// Called once per successful authentication.
     /// </summary>
-    /// <param name="userId">User ID from Identity.Users</param>
+    /// <param name="userId">User ID from Users</param>
     /// <param name="sessionId">Session ID (JWT jti claim)</param>
     /// <param name="ipAddress">Client IP address</param>
     /// <param name="userAgent">HTTP User-Agent header</param>

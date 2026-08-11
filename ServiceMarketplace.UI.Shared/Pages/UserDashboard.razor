@@ -1,4 +1,5 @@
 @page "/user/dashboard"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.UI.Shared.Auth
 @using ServiceMarketplace.UI.Shared.Requests
@@ -6,173 +7,183 @@
 @inject AuthState AuthState
 @inject AuthRedirector Redirector
 @inject RequestsApiClient RequestsClient
+@inject ContactRequestsApiClient ContactClient
+
+<PageTitle>User Dashboard</PageTitle>
+
+<div class="container py-4 dashboard-page">
+    <div class="dashboard-heading">
+        <div>
+            <h2>User Dashboard</h2>
+            <p>Requests, service orders, profile discovery, and approved contact sharing.</p>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted">Loading dashboard...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-warning">@_error</div>
+    }
+
+    <section class="kpi-grid">
+        <article class="kpi-card">
+            <i class="bi bi-send-plus"></i>
+            <span>Open Requests</span>
+            <strong>@(_stats?.OpenRequestsCount ?? 0)</strong>
+        </article>
+        <article class="kpi-card">
+            <i class="bi bi-hand-index-thumb"></i>
+            <span>Active Bids</span>
+            <strong>@(_stats?.ActiveBidsCount ?? 0)</strong>
+        </article>
+        <article class="kpi-card">
+            <i class="bi bi-check2-circle"></i>
+            <span>Completed</span>
+            <strong>@(_stats?.CompletedRequestsCount ?? 0)</strong>
+        </article>
+        <article class="kpi-card">
+            <i class="bi bi-person-vcard"></i>
+            <span>Approved Contacts</span>
+            <strong>@(_contactSummary?.ApprovedCount ?? 0)</strong>
+        </article>
+    </section>
+
+    <section class="dashboard-layout">
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Quick Actions</h3>
+                <span>Customer workflow</span>
+            </div>
+            <div class="action-grid">
+                <button class="action-tile primary" @onclick="GoToCreateRequest">
+                    <i class="bi bi-plus-circle"></i>
+                    <span>Create Request</span>
+                </button>
+                <button class="action-tile" @onclick="GoToMyRequests">
+                    <i class="bi bi-list-check"></i>
+                    <span>My Requests</span>
+                </button>
+                <button class="action-tile" @onclick="GoToServiceOrders">
+                    <i class="bi bi-clipboard2-check"></i>
+                    <span>Service Orders</span>
+                </button>
+                <button class="action-tile" @onclick="GoToProfiles">
+                    <i class="bi bi-search"></i>
+                    <span>Find Profiles</span>
+                </button>
+                <button class="action-tile" @onclick="GoToContactRequests">
+                    <i class="bi bi-telephone-outbound"></i>
+                    <span>Contact Requests</span>
+                </button>
+                <button class="action-tile" @onclick="GoToMarketplace">
+                    <i class="bi bi-bag-check"></i>
+                    <span>Marketplace</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Request Distribution</h3>
+                <span>CSS-only chart</span>
+            </div>
+            <DashboardBar Label="Open" Value="@(_stats?.OpenRequestsCount ?? 0)" Max="@MaxRequestValue" ClassName="blue" />
+            <DashboardBar Label="Active bids" Value="@(_stats?.ActiveBidsCount ?? 0)" Max="@MaxRequestValue" ClassName="teal" />
+            <DashboardBar Label="Completed" Value="@(_stats?.CompletedRequestsCount ?? 0)" Max="@MaxRequestValue" ClassName="green" />
+            <DashboardBar Label="Total" Value="@(_stats?.TotalRequestsCount ?? 0)" Max="@MaxRequestValue" ClassName="slate" />
+        </div>
+
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Contact Sharing</h3>
+                <span>Admin-approved privacy flow</span>
+            </div>
+            <DashboardBar Label="Pending" Value="@(_contactSummary?.PendingCount ?? 0)" Max="@MaxContactValue" ClassName="amber" />
+            <DashboardBar Label="Approved" Value="@(_contactSummary?.ApprovedCount ?? 0)" Max="@MaxContactValue" ClassName="green" />
+            <DashboardBar Label="Rejected" Value="@(_contactSummary?.RejectedCount ?? 0)" Max="@MaxContactValue" ClassName="red" />
+            <DashboardBar Label="Callbacks" Value="@(_contactSummary?.CallbackPendingCount ?? 0)" Max="@MaxContactValue" ClassName="blue" />
+        </div>
+
+        <div class="dashboard-panel">
+            <div class="panel-title">
+                <h3>Recent Activity</h3>
+                <span>Next best steps</span>
+            </div>
+            <ol class="timeline">
+                <li>Use Profile Search to discover providers and sellers.</li>
+                <li>Create a service request when you need competitive bids.</li>
+                <li>Use Request Contact only when direct phone/email sharing is needed.</li>
+            </ol>
+        </div>
+    </section>
+</div>
 
 @code {
-    private bool _isAuthenticated;
-    private string? _role;
-    private bool _loadingStats = true;
-    private string? _statsError;
+    private bool _loading = true;
+    private string? _error;
     private UserDashboardStatsDto? _stats;
+    private ContactRequestSummaryDto? _contactSummary;
+
+    private int MaxRequestValue => Math.Max(1, new[]
+    {
+        _stats?.OpenRequestsCount ?? 0,
+        _stats?.ActiveBidsCount ?? 0,
+        _stats?.CompletedRequestsCount ?? 0,
+        _stats?.TotalRequestsCount ?? 0
+    }.Max());
+
+    private int MaxContactValue => Math.Max(1, new[]
+    {
+        _contactSummary?.PendingCount ?? 0,
+        _contactSummary?.ApprovedCount ?? 0,
+        _contactSummary?.RejectedCount ?? 0,
+        _contactSummary?.CallbackPendingCount ?? 0
+    }.Max());
+
+    private void GoToCreateRequest() => Nav.NavigateTo("/user/create-request");
+    private void GoToMyRequests() => Nav.NavigateTo("/user/my-requests");
+    private void GoToServiceOrders() => Nav.NavigateTo("/user/service-orders");
+    private void GoToProfiles() => Nav.NavigateTo("/profiles/search");
+    private void GoToContactRequests() => Nav.NavigateTo("/contact-requests");
+    private void GoToMarketplace() => Nav.NavigateTo("/marketplace/search");
 
     protected override async Task OnInitializedAsync()
     {
-        _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
-
-        Console.WriteLine($"[UserDashboard] Auth: {_isAuthenticated}, Role: {_role}");
-
-        if (!_isAuthenticated)
+        if (!await AuthState.IsAuthenticatedAsync())
         {
-            Console.WriteLine("[UserDashboard] Not authenticated, redirecting to login");
             Nav.NavigateTo("/login", forceLoad: false);
             return;
         }
 
-        if (string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        if (!await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer))
         {
-            Console.WriteLine("[UserDashboard] ServiceProvider detected, redirecting");
             await Redirector.RedirectToDashboardAsync();
             return;
         }
 
-        // Load dashboard stats
-        await LoadStatsAsync();
+        await LoadAsync();
     }
 
-    private async Task LoadStatsAsync()
+    private async Task LoadAsync()
     {
-        _loadingStats = true;
-        _statsError = null;
+        _loading = true;
+        _error = null;
 
         try
         {
             _stats = await RequestsClient.GetDashboardStatsAsync();
-            Console.WriteLine($"[UserDashboard] Stats loaded: Open={_stats.OpenRequestsCount}, Bids={_stats.ActiveBidsCount}, Completed={_stats.CompletedRequestsCount}");
+            _contactSummary = await ContactClient.GetSummaryAsync();
         }
         catch (Exception ex)
         {
-            _statsError = $"Failed to load stats: {ex.Message}";
-            Console.WriteLine($"[UserDashboard] Error loading stats: {ex.Message}");
+            _error = ex.Message;
         }
         finally
         {
-            _loadingStats = false;
+            _loading = false;
         }
     }
-
-    /// <summary>
-    /// Refresh stats after user performs an action (e.g., creates a request).
-    /// Call this from parent component or after navigation back to dashboard.
-    /// </summary>
-    public async Task RefreshStatsAsync()
-    {
-        await LoadStatsAsync();
-        StateHasChanged();
-    }
-
-    private void GoToCreateRequest() => Nav.NavigateTo("/user/create-request");
-    private void GoToMyRequests() => Nav.NavigateTo("/user/my-requests");
 }
-
-<div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">User Dashboard</h2>
-        <LogoutButton />
-    </div>
-
-    <AuthorizeView Roles="@RoleNames.User">
-        <Authorized>
-            <div class="row">
-                <div class="col-md-8">
-                    <div class="card">
-                        <div class="card-header bg-primary text-white">
-                            <h5 class="mb-0">Quick Actions</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="d-grid gap-2">
-                                <button class="btn btn-lg btn-primary" type="button" @onclick="GoToCreateRequest">
-                                    <i class="bi bi-plus-circle me-2"></i>
-                                    Create New Service Request
-                                </button>
-                                <button class="btn btn-lg btn-outline-primary" type="button" @onclick="GoToMyRequests">
-                                    <i class="bi bi-list-ul me-2"></i>
-                                    View My Requests
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card mt-3">
-                        <div class="card-header">
-                            <h5 class="mb-0">Recent Activity</h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted">No recent activity. Create your first service request to get started!</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Stats</h5>
-                        </div>
-                        <div class="card-body">
-                            @if (_loadingStats)
-                            {
-                                <div class="text-center py-3">
-                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                        <span class="visually-hidden">Loading...</span>
-                                    </div>
-                                    <p class="text-muted small mt-2 mb-0">Loading stats...</p>
-                                </div>
-                            }
-                            else if (!string.IsNullOrWhiteSpace(_statsError))
-                            {
-                                <div class="alert alert-warning py-2 mb-0" role="alert">
-                                    <small>@_statsError</small>
-                                </div>
-                            }
-                            else if (_stats != null)
-                            {
-                                <div class="mb-3">
-                                    <h6 class="text-muted">Open Requests</h6>
-                                    <h3 class="mb-0 text-primary">@_stats.OpenRequestsCount</h3>
-                                    <small class="text-muted">Currently accepting bids</small>
-                                </div>
-                                <hr />
-                                <div class="mb-3">
-                                    <h6 class="text-muted">Active Bids</h6>
-                                    <h3 class="mb-0 text-info">@_stats.ActiveBidsCount</h3>
-                                    <small class="text-muted">Bids received on open requests</small>
-                                </div>
-                                <hr />
-                                <div class="mb-3">
-                                    <h6 class="text-muted">Completed</h6>
-                                    <h3 class="mb-0 text-success">@_stats.CompletedRequestsCount</h3>
-                                    <small class="text-muted">Service completed or cancelled</small>
-                                </div>
-                                <hr />
-                                <div>
-                                    <h6 class="text-muted">Total Requests</h6>
-                                    <h3 class="mb-0">@_stats.TotalRequestsCount</h3>
-                                    <small class="text-muted">All time</small>
-                                </div>
-                            }
-                            else
-                            {
-                                <p class="text-muted mb-0">No stats available</p>
-                            }
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Authorized>
-        <NotAuthorized>
-            <div class="alert alert-warning" role="alert">
-                <strong>Unauthorized Access</strong>
-                <p class="mb-0">You do not have permission to view this page. Redirecting...</p>
-            </div>
-        </NotAuthorized>
-    </AuthorizeView>
-</div>

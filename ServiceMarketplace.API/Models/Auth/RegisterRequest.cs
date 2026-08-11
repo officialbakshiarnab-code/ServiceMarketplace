@@ -5,19 +5,7 @@ namespace ServiceMarketplace.API.Models.Auth;
 
 /// <summary>
 /// Registration request payload for /api/auth/register.
-/// Supports both form-encoded and multipart/form-data.
-/// Includes all required fields for user account creation and age verification.
-/// 
-/// Age Requirements:
-/// - User role (1): No age restriction
-/// - ServiceProvider role (2): Must be 18 or older
-/// - Both role (3): Must be 18 or older
-/// 
-/// File Upload:
-/// - GovernmentIdImage: Optional (multipart/form-data only)
-/// - Supported formats: JPEG, PNG, GIF, WebP
-/// - Max size: 5MB
-/// - Registration succeeds even if file upload fails
+/// The API currently accepts JSON for account creation.
 /// </summary>
 public class RegisterRequest
 {
@@ -30,13 +18,7 @@ public class RegisterRequest
     public string Email { get; set; } = string.Empty;
 
     /// <summary>
-    /// User's password (plain text, hashed by Identity).
-    /// Must meet ASP.NET Identity password requirements:
-    /// - Minimum 6 characters
-    /// - Must contain uppercase letter
-    /// - Must contain lowercase letter
-    /// - Must contain digit
-    /// - Must contain special character
+    /// User's password, hashed before storage.
     /// </summary>
     [Required(ErrorMessage = "Password is required")]
     [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
@@ -61,37 +43,20 @@ public class RegisterRequest
     /// <summary>
     /// User's date of birth.
     /// Required for all roles.
-    /// Used to verify age requirements:
-    /// - ServiceProvider and Both roles require age >= 18
+    /// Used to verify provider age requirements.
     /// </summary>
     [Required(ErrorMessage = "Date of birth is required")]
     public DateTime DateOfBirth { get; set; }
 
     /// <summary>
     /// User role for determining permissions.
-    /// Valid values: "User", "ServiceProvider", "Both"
-    /// 
-    /// Age restrictions:
-    /// - "User": No age restriction
-    /// - "ServiceProvider": Must be 18+ years old
-    /// - "Both": Must be 18+ years old
+    /// Valid values: "User", "ServiceProvider", "Both".
     /// </summary>
     [Required(ErrorMessage = "User type is required")]
     public string Role { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional government-issued ID image file.
-    /// Only supported when using multipart/form-data.
-    /// 
-    /// Validation:
-    /// - Image only (JPEG, PNG, GIF, WebP)
-    /// - Max 5MB
-    /// - File is optional - registration succeeds even if upload fails
-    /// 
-    /// Usage:
-    /// - POST /api/auth/register (multipart/form-data)
-    /// - Field name: "GovernmentIdImage"
-    /// - Upload fails silently if not provided or invalid
+    /// Reserved for the multipart registration flow.
     /// </summary>
     public IFormFile? GovernmentIdImage { get; set; }
 }

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Authorization;
+using ServiceMarketplace.Application.Constants;
 using System.Security.Claims;
 
 namespace ServiceMarketplace.UI.Shared.Auth;
@@ -65,6 +66,24 @@ public sealed class AuthState
 
         var roles = await GetAllRolesAsync();
         return roles.Any(r => string.Equals(r, role, StringComparison.Ordinal));
+    }
+
+    public async Task<IList<string>> GetAllMarketplaceCapabilitiesAsync()
+    {
+        var state = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        return state.User.FindAll(MarketplaceCapabilityConstants.ClaimType)
+            .Select(c => c.Value)
+            .Where(capability => !string.IsNullOrWhiteSpace(capability))
+            .ToList();
+    }
+
+    public async Task<bool> HasMarketplaceCapabilityAsync(string capability)
+    {
+        if (string.IsNullOrWhiteSpace(capability))
+            return false;
+
+        var capabilities = await GetAllMarketplaceCapabilitiesAsync();
+        return capabilities.Any(c => string.Equals(c, capability, StringComparison.Ordinal));
     }
 }
 

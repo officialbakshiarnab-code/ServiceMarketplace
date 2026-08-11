@@ -1,0 +1,351 @@
+@page "/seller/products"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ProductListingsApiClient ProductsClient
+@inject ProductCatalogApiClient ProductCatalogClient
+@inject ServiceCatalogApiClient ServiceCatalogClient
+@inject AuthState AuthState
+@inject NavigationManager Nav
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">My Products</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success" role="alert">@_success</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="mb-3">@(_editingListingId.HasValue ? "Edit Product" : "Create Product")</h5>
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input class="form-control" @bind="_form.Title" maxlength="150" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="4" @bind="_form.Description" maxlength="1000"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" @bind="_form.ProductCategoryId">
+                            @foreach (var category in _categories)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Zone</label>
+                        <select class="form-select" @bind="_zoneValue">
+                            <option value="">All seller zones</option>
+                            @foreach (var zone in _zones)
+                            {
+                                <option value="@zone.Id">@zone.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Price</label>
+                            <input class="form-control" type="number" step="0.01" min="1" @bind="_form.Price" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Stock</label>
+                            <input class="form-control" type="number" min="0" @bind="_form.StockQuantity" />
+                        </div>
+                    </div>
+                    <div class="mb-3 mt-3">
+                        <label class="form-label">Image URL</label>
+                        <input class="form-control" @bind="_form.ImageUrl" maxlength="500" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Condition</label>
+                        <select class="form-select" @bind="_form.Condition">
+                            <option value="@ProductCondition.New">New</option>
+                            <option value="@ProductCondition.LikeNew">Like new</option>
+                            <option value="@ProductCondition.Good">Good</option>
+                            <option value="@ProductCondition.Fair">Fair</option>
+                            <option value="@ProductCondition.NeedsRepair">Needs repair</option>
+                        </select>
+                    </div>
+                    @if (IsUsedForm)
+                    {
+                        <div class="alert alert-info py-2" role="alert">
+                            <strong>Inspection guidance</strong>
+                            @if (SelectedCategory?.UsedInspectionPrompts.Count > 0)
+                            {
+                                <ul class="mb-0 mt-1 ps-3">
+                                    @foreach (var prompt in SelectedCategory.UsedInspectionPrompts)
+                                    {
+                                        <li>@prompt</li>
+                                    }
+                                </ul>
+                            }
+                            else
+                            {
+                                <div class="small">Add visible wear, working status, missing parts, and proof-of-purchase details.</div>
+                            }
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Condition Notes</label>
+                            <textarea class="form-control" rows="3" @bind="_form.ConditionNotes" maxlength="1000"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Seller Inspection Checklist</label>
+                            <textarea class="form-control" rows="3" @bind="_form.InspectionChecklist" maxlength="2000"></textarea>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label">Purchase Year</label>
+                                <input class="form-control" type="number" min="1970" max="@DateTime.UtcNow.Year" @bind="_form.PurchaseYear" />
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" id="originalBill" @bind="_form.HasOriginalBill" />
+                                    <label class="form-check-label" for="originalBill">Original bill available</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="warranty" @bind="_form.HasWarranty" />
+                                    <label class="form-check-label" for="warranty">Warranty available</label>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="activeProduct" @bind="_form.IsActive" />
+                        <label class="form-check-label" for="activeProduct">Active</label>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Save</button>
+                        @if (_editingListingId.HasValue)
+                        {
+                            <button class="btn btn-outline-secondary" @onclick="ResetForm">Cancel Edit</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            @if (_loading)
+            {
+                <p class="text-muted mb-0">Loading...</p>
+            }
+            else if (_products.Count == 0)
+            {
+                <div class="card">
+                    <div class="card-body">
+                        <p class="text-muted mb-0">No products yet.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="list-group">
+                    @foreach (var product in _products)
+                    {
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between gap-3">
+                                <div class="d-flex gap-3">
+                                    @if (!string.IsNullOrWhiteSpace(product.ImageUrl))
+                                    {
+                                        <img src="@product.ImageUrl" alt="@product.Title" class="rounded" style="width: 96px; height: 96px; object-fit: cover;" />
+                                    }
+                                    <div>
+                                        <h5 class="mb-1">@product.Title</h5>
+                                        <p class="mb-1 small text-muted">@product.ProductCategoryName | @product.ServiceZoneName</p>
+                                        <p class="mb-1 small">
+                                            <span class="badge @(product.IsUsed ? "bg-warning text-dark" : "bg-success")">@product.ConditionLabel</span>
+                                            @if (product.IsUsed && product.PurchaseYear.HasValue)
+                                            {
+                                                <span class="text-muted ms-1">Purchased @product.PurchaseYear</span>
+                                            }
+                                        </p>
+                                        <p class="mb-1">@product.Description</p>
+                                        @if (product.IsUsed)
+                                        {
+                                            <p class="mb-1 small"><strong>Condition:</strong> @product.ConditionNotes</p>
+                                            <p class="mb-1 small"><strong>Inspection:</strong> @product.InspectionChecklist</p>
+                                        }
+                                        <p class="mb-0 small">$@product.Price.ToString("0.00") | @product.StockQuantity in stock</p>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge @(product.IsActive ? "bg-success" : "bg-secondary") mb-2">@product.Status</span>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(product)">Edit</button>
+                                    </div>
+                                    <div class="mt-2">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleAsync(product)" disabled="@_busy">
+                                            @(product.IsActive ? "Deactivate" : "Activate")
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _success;
+    private Guid? _editingListingId;
+    private string _zoneValue = string.Empty;
+    private List<ProductListingDto> _products = [];
+    private List<ProductCategoryDto> _categories = [];
+    private List<ServiceZoneDto> _zones = [];
+    private UpsertProductListingDto _form = new();
+    private bool IsUsedForm => _form.Condition != ProductCondition.New;
+    private ProductCategoryDto? SelectedCategory => _categories.FirstOrDefault(c => c.Id == _form.ProductCategoryId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductSeller))
+        {
+            Nav.NavigateTo("/account/seller-application", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _categories = await ProductCatalogClient.GetCategoriesAsync();
+            _zones = await ServiceCatalogClient.GetZonesAsync();
+            ResetForm();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load product workspace.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _products = await ProductsClient.GetMineAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load products.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _success = null;
+        try
+        {
+            _form.ServiceZoneId = Guid.TryParse(_zoneValue, out var zoneId) ? zoneId : null;
+            if (_form.Condition == ProductCondition.New)
+            {
+                _form.ConditionNotes = null;
+                _form.InspectionChecklist = null;
+                _form.PurchaseYear = null;
+                _form.HasOriginalBill = false;
+                _form.HasWarranty = false;
+            }
+
+            if (_editingListingId.HasValue)
+            {
+                await ProductsClient.UpdateAsync(_editingListingId.Value, _form);
+                _success = "Product updated.";
+            }
+            else
+            {
+                await ProductsClient.CreateAsync(_form);
+                _success = "Product created.";
+            }
+
+            ResetForm();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to save product.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Edit(ProductListingDto product)
+    {
+        _editingListingId = product.Id;
+        _form = new UpsertProductListingDto
+        {
+            ProductCategoryId = product.ProductCategoryId,
+            ServiceZoneId = product.ServiceZoneId,
+            Title = product.Title,
+            Description = product.Description,
+            Price = product.Price,
+            StockQuantity = product.StockQuantity,
+            ImageUrl = product.ImageUrl,
+            Condition = product.Condition,
+            ConditionNotes = product.ConditionNotes,
+            InspectionChecklist = product.InspectionChecklist,
+            PurchaseYear = product.PurchaseYear,
+            HasOriginalBill = product.HasOriginalBill,
+            HasWarranty = product.HasWarranty,
+            IsActive = product.IsActive
+        };
+        _zoneValue = product.ServiceZoneId?.ToString() ?? string.Empty;
+    }
+
+    private async Task ToggleAsync(ProductListingDto product)
+    {
+        Edit(product);
+        _form.IsActive = !product.IsActive;
+        await SaveAsync();
+    }
+
+    private void ResetForm()
+    {
+        _editingListingId = null;
+        _form = new UpsertProductListingDto
+        {
+            ProductCategoryId = _categories.FirstOrDefault()?.Id ?? Guid.Empty,
+            ServiceZoneId = _zones.FirstOrDefault()?.Id,
+            Title = string.Empty,
+            Description = string.Empty,
+            Price = 250,
+            StockQuantity = 1,
+            Condition = ProductCondition.New,
+            IsActive = true
+        };
+        _zoneValue = _form.ServiceZoneId?.ToString() ?? string.Empty;
+    }
+
+    private void GoBack() => Nav.NavigateTo("/user/dashboard");
+}

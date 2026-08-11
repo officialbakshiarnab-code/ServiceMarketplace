@@ -1,0 +1,229 @@
+@page "/user/service-packages"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ServicePackagesApiClient PackagesClient
+@inject ServiceCatalogApiClient CatalogClient
+@inject NavigationManager Nav
+@inject AuthState AuthState
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Service Packages</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back to Dashboard</button>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-md-5">
+            <select class="form-select" @bind="_categoryFilter">
+                <option value="">All categories</option>
+                @foreach (var category in _categories)
+                {
+                    <option value="@category.Id">@category.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-5">
+            <select class="form-select" @bind="_zoneFilter">
+                <option value="">All zones</option>
+                @foreach (var zone in _zones)
+                {
+                    <option value="@zone.Id">@zone.DisplayName</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2 d-grid">
+            <button class="btn btn-primary" @onclick="LoadPackagesAsync" disabled="@_loading">Filter</button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success" role="alert">@_success</div>
+    }
+
+    @if (!_loading && _packages.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No fixed-price packages are available for this selection.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var package in _packages)
+            {
+                var booking = GetBooking(package.Id);
+                <div class="col-lg-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between gap-3">
+                                <div>
+                                    <h5 class="mb-1">@package.Title</h5>
+                                    <p class="mb-1 small text-muted">@package.ServiceCategoryName | @package.ServiceZoneName</p>
+                                    <p class="mb-2">@package.Description</p>
+                                </div>
+                                <div class="text-end">
+                                    <div class="fw-bold">$@package.Price.ToString("0.00")</div>
+                                    @if (package.EstimatedDurationMinutes.HasValue)
+                                    {
+                                        <div class="small text-muted">@package.EstimatedDurationMinutes min</div>
+                                    }
+                                </div>
+                            </div>
+                            <p class="small text-muted mb-3">
+                                @package.ProviderDisplayName
+                                @if (!string.IsNullOrWhiteSpace(package.ProviderBusinessName))
+                                {
+                                    <span> | @package.ProviderBusinessName</span>
+                                }
+                                <span> | @package.ProviderAverageRating.ToString("0.0") / 5 (@package.ProviderReviewCount)</span>
+                            </p>
+
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Scheduled start</label>
+                                    <input class="form-control" type="datetime-local" @bind="booking.ScheduledStartAt" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Location</label>
+                                    <input class="form-control" @bind="booking.Location" maxlength="500" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Latitude</label>
+                                    <input class="form-control" type="number" step="0.000001" @bind="booking.Latitude" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Longitude</label>
+                                    <input class="form-control" type="number" step="0.000001" @bind="booking.Longitude" />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Notes</label>
+                                    <textarea class="form-control" rows="2" @bind="booking.Requirements" maxlength="2000"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="mt-3 d-flex justify-content-end">
+                                <button class="btn btn-success" @onclick="() => BookAsync(package.Id)" disabled="@_busy">Book Package</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _success;
+    private string _categoryFilter = string.Empty;
+    private string _zoneFilter = string.Empty;
+    private List<ServicePackageDto> _packages = [];
+    private List<ServiceCategoryDto> _categories = [];
+    private List<ServiceZoneDto> _zones = [];
+    private readonly Dictionary<Guid, BookServicePackageDto> _bookings = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceCustomer))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _categories = await CatalogClient.GetCategoriesAsync();
+            _zones = await CatalogClient.GetZonesAsync();
+            await LoadPackagesAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load service packages.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadPackagesAsync()
+    {
+        _loading = true;
+        _error = null;
+        _success = null;
+
+        try
+        {
+            _packages = await PackagesClient.GetActiveAsync(ParseGuid(_categoryFilter), ParseGuid(_zoneFilter));
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load service packages.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private BookServicePackageDto GetBooking(Guid packageId)
+    {
+        if (_bookings.TryGetValue(packageId, out var booking))
+            return booking;
+
+        booking = new BookServicePackageDto
+        {
+            ScheduledStartAt = DateTime.Now.AddHours(4),
+            Location = "Kolkata, West Bengal",
+            Latitude = 22.5726,
+            Longitude = 88.3639
+        };
+        _bookings[packageId] = booking;
+        return booking;
+    }
+
+    private async Task BookAsync(Guid packageId)
+    {
+        _busy = true;
+        _error = null;
+        _success = null;
+
+        try
+        {
+            var order = await PackagesClient.BookAsync(packageId, GetBooking(packageId));
+            _success = $"Package booked. Order {order.Id} is ready.";
+            Nav.NavigateTo("/user/service-orders");
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to book service package.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static Guid? ParseGuid(string value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private void GoBack() => Nav.NavigateTo("/user/dashboard");
+}

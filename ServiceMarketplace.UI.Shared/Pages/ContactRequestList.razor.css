@@ -1,0 +1,6 @@
+.contact-panel { border: 1px solid #d6dde8; background: #fff; border-radius: 8px; padding: 1rem; }
+.contact-panel h3 { margin: 0 0 0.75rem; }
+.contact-row { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #edf1f7; padding: 0.75rem 0; }
+.contact-row:first-of-type { border-top: 0; }
+.contact-row p { margin: 0.2rem 0; color: #667085; }
+.contact-row-status { display: grid; justify-items: end; gap: 0.25rem; }

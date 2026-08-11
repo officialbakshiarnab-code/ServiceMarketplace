@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceMarketplace.Application.Constants;
@@ -6,6 +5,7 @@ using ServiceMarketplace.Application.DTOs;
 using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Domain.Enums;
 using ServiceMarketplace.Infrastructure.Data;
+using ServiceMarketplace.Infrastructure.Data.Extensions;
 
 namespace ServiceMarketplace.Infrastructure.Services;
 
@@ -15,8 +15,6 @@ namespace ServiceMarketplace.Infrastructure.Services;
 /// </summary>
 public sealed class AdminKpiService(
     AppDbContext context,
-    UserManager<IdentityUser> userManager,
-    RoleManager<IdentityRole> roleManager,
     ILogger<AdminKpiService> logger) : IAdminKpiService
 {
     public async Task<AdminDashboardKpiDto> GetDashboardKpisAsync()
@@ -48,30 +46,59 @@ public sealed class AdminKpiService(
 
     private async Task<UserCountsByRoleDto> GetUserCountsAsync()
     {
-        // Get all users with their roles in a single query
-        var usersWithRoles = await userManager.Users
-            .Select(u => new
-            {
-                UserId = u.Id,
-                Roles = context.UserRoles
-                    .Where(ur => ur.UserId == u.Id)
-                    .Join(context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name)
-                    .ToList()
-            })
+        var users = await context.Users
+            .AsNoTracking()
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
             .ToListAsync();
 
         var userCounts = new UserCountsByRoleDto
         {
-            TotalUsers = usersWithRoles.Count,
-            UsersCount = usersWithRoles.Count(u => u.Roles.Contains(RoleConstants.User)),
-            ServiceProvidersCount = usersWithRoles.Count(u => u.Roles.Contains(RoleConstants.ServiceProvider)),
-            AdminsCount = usersWithRoles.Count(u => u.Roles.Contains(RoleConstants.Admin))
+            TotalUsers = users.Count,
+            UsersCount = users.Count(HasServiceCustomerCapability),
+            ServiceProvidersCount = users.Count(HasServiceProviderCapability),
+            AdminsCount = users.Count(HasPlatformAdminPermission)
         };
 
         logger.LogInformation("[AdminKpiService] User counts: Total={Total}, Users={Users}, Providers={Providers}, Admins={Admins}",
             userCounts.TotalUsers, userCounts.UsersCount, userCounts.ServiceProvidersCount, userCounts.AdminsCount);
 
         return userCounts;
+    }
+
+    private static bool HasServiceCustomerCapability(Domain.Entities.User user)
+    {
+        return MarketplaceCapabilityConstants
+            .FromRoles(GetRoleNames(user))
+            .Contains(MarketplaceCapabilityConstants.ServiceCustomer);
+    }
+
+    private static bool HasServiceProviderCapability(Domain.Entities.User user)
+    {
+        return MarketplaceCapabilityConstants
+            .FromRoles(GetRoleNames(user))
+            .Contains(MarketplaceCapabilityConstants.ServiceProvider);
+    }
+
+    private static bool HasPlatformAdminPermission(Domain.Entities.User user)
+    {
+        return AdministrativePermissionConstants
+            .FromRoles(GetRoleNames(user))
+            .Contains(AdministrativePermissionConstants.PlatformAdmin);
+    }
+
+    private static IEnumerable<string> GetRoleNames(Domain.Entities.User user)
+    {
+        var roleNames = user.UserRoles
+            .Select(ur => ur.Role.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToList();
+
+        if (roleNames.Count > 0)
+            return roleNames;
+
+        return new[] { user.UserType.GetPrimaryRole() };
     }
 
     private async Task<ServiceRequestStatsDto> GetRequestStatsAsync()

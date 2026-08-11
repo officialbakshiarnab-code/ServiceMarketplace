@@ -1,0 +1,152 @@
+@page "/products/orders"
+@using ServiceMarketplace.Application.Constants
+@using ServiceMarketplace.Application.DTOs
+@using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
+@using ServiceMarketplace.UI.Shared.Requests
+@inject ProductDeliveryOrdersApiClient OrdersClient
+@inject AuthState AuthState
+@inject NavigationManager Nav
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Product Orders</h2>
+        <button class="btn btn-link" @onclick="GoBack">Back</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success" role="alert">@_success</div>
+    }
+
+    @if (_loading)
+    {
+        <p class="text-muted mb-0">Loading...</p>
+    }
+    else if (_orders.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <p class="text-muted mb-0">No product delivery orders yet.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var order in _orders)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between gap-3">
+                        <div class="d-flex gap-3">
+                            @if (!string.IsNullOrWhiteSpace(order.ProductImageUrl))
+                            {
+                                <img src="@order.ProductImageUrl" alt="@order.ProductTitle" class="rounded" style="width: 88px; height: 88px; object-fit: cover;" />
+                            }
+                            <div>
+                                <h5 class="mb-1">@order.ProductTitle</h5>
+                                <p class="small text-muted mb-1">@order.StoreName | @order.ProductCategoryName | @order.ProductConditionLabel</p>
+                                <p class="mb-1">Qty @order.Quantity | $@order.TotalPrice.ToString("0.00")</p>
+                                <p class="small mb-1">@order.DeliveryRecipientName, @order.DeliveryCity, @order.DeliveryState</p>
+                                @if (!string.IsNullOrWhiteSpace(order.SellerPickupAddress))
+                                {
+                                    <p class="small text-muted mb-0">Seller pickup: @order.SellerPickupAddress</p>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(order.CancellationReason))
+                                {
+                                    <p class="small text-danger mb-0">@order.CancellationReason</p>
+                                }
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge @StatusBadge(order.Status) mb-2">@order.StatusLabel</span>
+                            <div class="small text-muted">@order.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")</div>
+                            @if (CanBuyerCancel(order))
+                            {
+                                <button class="btn btn-sm btn-outline-danger mt-2" @onclick="() => CancelAsync(order)" disabled="@_busy">Cancel</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _success;
+    private List<ProductDeliveryOrderDto> _orders = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await AuthState.IsAuthenticatedAsync() ||
+            !await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ProductBuyer))
+        {
+            Nav.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _orders = await OrdersClient.GetMineAsBuyerAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to load product delivery orders.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CancelAsync(ProductDeliveryOrderDto order)
+    {
+        _busy = true;
+        _error = null;
+        _success = null;
+        try
+        {
+            await OrdersClient.CancelAsBuyerAsync(order.Id, "Cancelled by buyer.");
+            _success = "Product delivery order cancelled.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ErrorMessageFormatter.ToFriendlyMessage(ex, "Unable to cancel product delivery order.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static bool CanBuyerCancel(ProductDeliveryOrderDto order) =>
+        order.Status is ProductDeliveryStatus.PendingSellerConfirmation or ProductDeliveryStatus.Confirmed;
+
+    private static string StatusBadge(ProductDeliveryStatus status) => status switch
+    {
+        ProductDeliveryStatus.Delivered => "bg-success",
+        ProductDeliveryStatus.Cancelled => "bg-danger",
+        ProductDeliveryStatus.OutForDelivery => "bg-primary",
+        ProductDeliveryStatus.ReadyForPickup => "bg-info text-dark",
+        ProductDeliveryStatus.Confirmed => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private void GoBack() => Nav.NavigateTo("/products");
+}

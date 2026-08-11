@@ -1,4 +1,5 @@
 @page "/provider/requests/{RequestId:guid}"
+@using ServiceMarketplace.Application.Constants
 @using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.Domain.Enums
 @using ServiceMarketplace.UI.Shared.Auth
@@ -12,15 +13,15 @@
     public Guid RequestId { get; set; }
 
     private bool _isAuthenticated;
-    private string? _role;
+    private bool _hasServiceProviderCapability;
     private bool _loading = true;
     private string? _error;
-    private ServiceRequestDto? _request;
+    private ProviderServiceRequestDto? _request;
 
     protected override async Task OnInitializedAsync()
     {
         _isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        _role = await AuthState.GetRoleAsync();
+        _hasServiceProviderCapability = await AuthState.HasMarketplaceCapabilityAsync(MarketplaceCapabilityConstants.ServiceProvider);
 
         if (!_isAuthenticated)
         {
@@ -28,7 +29,7 @@
             return;
         }
 
-        if (!string.Equals(_role, RoleNames.Provider, StringComparison.Ordinal))
+        if (!_hasServiceProviderCapability)
         {
             Nav.NavigateTo("/provider/dashboard", forceLoad: false);
             return;
@@ -61,7 +62,7 @@
 <div class="container py-4">
     <button class="btn btn-link px-0 mb-3" @onclick="GoBack">Back to Available Requests</button>
 
-    <AuthorizeView Roles="@RoleNames.Provider">
+    <AuthorizeView>
         <Authorized>
             @if (_loading)
             {
@@ -89,9 +90,16 @@
                                         <strong>Category:</strong> @_request.Category
                                     </div>
                                     <div class="col-12 col-md-6">
-                                        <strong>Location:</strong> @_request.Location
+                                        <strong>Location:</strong> @_request.ApproximateLocation
                                     </div>
                                 </div>
+
+                                @if (_request.IsExactLocationVisible)
+                                {
+                                    <div class="alert alert-success mb-3" role="alert">
+                                        <strong>Accepted job location:</strong> @_request.ExactLocation
+                                    </div>
+                                }
 
                                 <div class="row g-2">
                                     <div class="col-12 col-md-6">

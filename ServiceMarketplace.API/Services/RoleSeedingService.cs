@@ -1,84 +1,132 @@
-using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using ServiceMarketplace.Application.Constants;
+using ServiceMarketplace.Domain.Entities;
+using ServiceMarketplace.Infrastructure.Data;
 
 namespace ServiceMarketplace.API.Services;
 
-/// <summary>
-/// Service responsible for seeding application roles on startup.
-/// Ensures that all required roles (User, ServiceProvider, Admin) are created exactly once.
-/// 
-/// CRITICAL BEHAVIOR:
-/// - Runs once during application startup
-/// - Never runs during user registration
-/// - Creates each role only if it doesn't exist
-/// - Logs all role creation attempts
-/// - Thread-safe via database constraints
-/// 
-/// WHY: Separating role creation from user registration prevents
-/// duplicate role creation attempts and ensures roles are available
-/// before any users are registered.
-/// </summary>
-public sealed class RoleSeedingService
+public sealed class RoleSeedingService(
+    AppDbContext dbContext,
+    ILogger<RoleSeedingService> logger)
 {
-    private readonly RoleManager<IdentityRole> _roleManager;
-    private readonly ILogger<RoleSeedingService> _logger;
-
-    public RoleSeedingService(RoleManager<IdentityRole> roleManager, ILogger<RoleSeedingService> logger)
-    {
-        _roleManager = roleManager;
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Seeds all required application roles.
-    /// Call this method once during application startup, after database migrations.
-    /// 
-    /// This method:
-    /// 1. Iterates through all roles in RoleConstants.AllRoles
-    /// 2. Checks if each role exists in the database
-    /// 3. Creates any missing roles
-    /// 4. Logs all operations
-    /// 5. Never throws exceptions - catches and logs errors gracefully
-    /// </summary>
     public async Task SeedRolesAsync()
     {
-        _logger.LogInformation("[RoleSeedingService] Starting role seeding process");
-
-        try
+        foreach (var roleName in RoleConstants.AllRoles)
         {
-            foreach (var roleName in RoleConstants.AllRoles)
+            var exists = await dbContext.Roles.AnyAsync(r => r.Name == roleName);
+            if (exists)
+                continue;
+
+            dbContext.Roles.Add(new ServiceMarketplace.Domain.Entities.Role
             {
-                var roleExists = await _roleManager.RoleExistsAsync(roleName);
-
-                if (roleExists)
-                {
-                    _logger.LogInformation("[RoleSeedingService] Role '{Role}' already exists", roleName);
-                    continue;
-                }
-
-                // Role doesn't exist - create it
-                _logger.LogInformation("[RoleSeedingService] Creating role: {Role}", roleName);
-
-                var result = await _roleManager.CreateAsync(new IdentityRole(roleName));
-
-                if (result.Succeeded)
-                {
-                    _logger.LogInformation("[RoleSeedingService] Successfully created role: {Role}", roleName);
-                }
-                else
-                {
-                    var errors = string.Join("; ", result.Errors.Select(e => e.Description));
-                    _logger.LogError("[RoleSeedingService] Failed to create role '{Role}': {Errors}", roleName, errors);
-                }
-            }
-
-            _logger.LogInformation("[RoleSeedingService] Role seeding process completed successfully");
+                Name = roleName,
+                Description = $"{roleName} account role",
+                CreatedDate = DateTime.UtcNow
+            });
         }
-        catch (Exception ex)
+
+        await dbContext.SaveChangesAsync();
+
+        await SeedServiceCatalogAsync();
+
+        logger.LogInformation(
+            "[RoleSeedingService] Ensured custom roles exist: {Roles}",
+            string.Join(", ", RoleConstants.AllRoles));
+    }
+
+    private async Task SeedServiceCatalogAsync()
+    {
+        var categories = new[]
         {
-            _logger.LogError(ex, "[RoleSeedingService] Unexpected error during role seeding");
-            throw;
+            new ServiceCategory
+            {
+                Id = new Guid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1"),
+                Name = "Plumbing",
+                Slug = "plumbing",
+                Description = "Leaks, taps, pipes, fittings, and water-flow issues",
+                IsActive = true,
+                SortOrder = 10,
+                CreatedAt = new DateTime(2026, 8, 7, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new ServiceCategory
+            {
+                Id = new Guid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2"),
+                Name = "Electrical",
+                Slug = "electrical",
+                Description = "Wiring, fixtures, switchboards, fans, and basic electrical repairs",
+                IsActive = true,
+                SortOrder = 20,
+                CreatedAt = new DateTime(2026, 8, 7, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new ServiceCategory
+            {
+                Id = new Guid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3"),
+                Name = "Cleaning",
+                Slug = "cleaning",
+                Description = "Home and small-office cleaning services",
+                IsActive = true,
+                SortOrder = 30,
+                CreatedAt = new DateTime(2026, 8, 7, 0, 0, 0, DateTimeKind.Utc)
+            }
+        };
+
+        foreach (var category in categories)
+        {
+            var exists = await dbContext.ServiceCategories.AnyAsync(c => c.Id == category.Id || c.Slug == category.Slug);
+            if (!exists)
+                dbContext.ServiceCategories.Add(category);
         }
+
+        var zones = new[]
+        {
+            new ServiceZone
+            {
+                Id = new Guid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1"),
+                Country = "India",
+                State = "West Bengal",
+                City = "Kolkata",
+                ZoneName = "Central Kolkata",
+                DisplayName = "Central Kolkata, Kolkata, West Bengal",
+                PinCodeRegion = "7000xx",
+                IsActive = true,
+                SortOrder = 10,
+                CreatedAt = new DateTime(2026, 8, 7, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new ServiceZone
+            {
+                Id = new Guid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"),
+                Country = "India",
+                State = "West Bengal",
+                City = "Kolkata",
+                ZoneName = "South Kolkata",
+                DisplayName = "South Kolkata, Kolkata, West Bengal",
+                PinCodeRegion = "7000xx",
+                IsActive = true,
+                SortOrder = 20,
+                CreatedAt = new DateTime(2026, 8, 7, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new ServiceZone
+            {
+                Id = new Guid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb3"),
+                Country = "India",
+                State = "West Bengal",
+                City = "Kolkata",
+                ZoneName = "North Kolkata",
+                DisplayName = "North Kolkata, Kolkata, West Bengal",
+                PinCodeRegion = "7000xx",
+                IsActive = true,
+                SortOrder = 30,
+                CreatedAt = new DateTime(2026, 8, 7, 0, 0, 0, DateTimeKind.Utc)
+            }
+        };
+
+        foreach (var zone in zones)
+        {
+            var exists = await dbContext.ServiceZones.AnyAsync(z => z.Id == zone.Id || z.DisplayName == zone.DisplayName);
+            if (!exists)
+                dbContext.ServiceZones.Add(zone);
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 }

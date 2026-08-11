@@ -23,7 +23,6 @@
                 }
                 Refresh
             </button>
-            <LogoutButton />
         </div>
     </div>
 
@@ -238,6 +237,12 @@
                                 <button class="btn btn-sm btn-outline-primary" @onclick="NavigateToAuditLogs">
                                     View All Audit Logs
                                 </button>
+                                <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="NavigateToOrderReviews">
+                                    Moderate Reviews
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="NavigateToSellerApplications">
+                                    Seller Applications
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -313,6 +318,16 @@
     private void NavigateToAuditLogs()
     {
         Nav.NavigateTo("/admin/audit-logs");
+    }
+
+    private void NavigateToOrderReviews()
+    {
+        Nav.NavigateTo("/admin/order-reviews");
+    }
+
+    private void NavigateToSellerApplications()
+    {
+        Nav.NavigateTo("/admin/seller-applications");
     }
 
     private string GetEventBadgeClass(string eventType)
