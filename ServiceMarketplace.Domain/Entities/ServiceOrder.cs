@@ -28,6 +28,8 @@ public class ServiceOrder : BaseAuditableEntity
     public string? CancelledByUserId { get; set; }
     public string? CancellationReason { get; set; }
 
+    public Conversation? Conversation { get; set; }
+
     public ICollection<ServiceOrderMessage> Messages { get; set; } = new List<ServiceOrderMessage>();
     public ICollection<ServiceOrderAuditEvent> AuditEvents { get; set; } = new List<ServiceOrderAuditEvent>();
     public ICollection<PlatformPaymentIntent> PlatformPaymentIntents { get; set; } = new List<PlatformPaymentIntent>();

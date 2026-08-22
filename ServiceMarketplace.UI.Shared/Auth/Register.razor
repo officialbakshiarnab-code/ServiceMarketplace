@@ -1,16 +1,29 @@
 @page "/register"
 @using System.ComponentModel.DataAnnotations
-@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Logging
 @using ServiceMarketplace.UI.Shared.Auth
 @inject AuthApiClient AuthApi
+@inject IRegistrationIntentStorage IntentStorage
 @inject NavigationManager Nav
 @inject ILogger<Register> Logger
 
 <PageTitle>Register</PageTitle>
 
-<div class="container py-4" style="max-width: 600px;">
-    <h3 class="mb-3">Register</h3>
+<div class="registration-assistant">
+    <header class="assistant-header">
+        <div>
+            <p class="eyebrow">Account setup</p>
+            <h1>ServiceMarketplace Registration Assistant</h1>
+            <p>Create one account, then activate provider or seller capabilities through approval flows after login.</p>
+        </div>
+        <div class="step-indicator" aria-label="Registration progress">
+            <span class="@GetStepClass(AssistantStep.Intent)">1</span>
+            <span class="@GetStepClass(AssistantStep.Account)">2</span>
+            <span class="@GetStepClass(AssistantStep.Commercial)">3</span>
+            <span class="@GetStepClass(AssistantStep.Security)">4</span>
+            <span class="@GetStepClass(AssistantStep.Review)">5</span>
+        </div>
+    </header>
 
     @if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -22,168 +35,420 @@
     @if (_success)
     {
         <div class="alert alert-success" role="alert">
-            Registration successful! Redirecting to login...
+            Registration successful. Login next to continue setup.
         </div>
     }
 
-    <EditForm Model="_model" OnValidSubmit="HandleRegisterAsync">
+    <EditForm EditContext="_editContext" OnValidSubmit="HandleRegisterAsync">
         <DataAnnotationsValidator />
-        <ValidationSummary class="text-danger" />
 
-        <div class="row">
-            <div class="col-md-6">
-                <div class="mb-3">
-                    <label class="form-label">First Name</label>
-                    <InputText class="form-control" @bind-Value="_model.FirstName" placeholder="First name"
-                        disabled="@_busy" />
-                    <ValidationMessage For="@(() => _model.FirstName)" />
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="mb-3">
-                    <label class="form-label">Last Name</label>
-                    <InputText class="form-control" @bind-Value="_model.LastName" placeholder="Last name"
-                        disabled="@_busy" />
-                    <ValidationMessage For="@(() => _model.LastName)" />
-                </div>
-            </div>
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label">Email</label>
-            <InputText class="form-control" @bind-Value="_model.Email" placeholder="Email" disabled="@_busy" />
-            <ValidationMessage For="@(() => _model.Email)" />
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label">Date of Birth</label>
-            <InputDate class="form-control"
-                       @bind-Value="_model.DateOfBirth"
-                       @bind-Value:after="OnDateOfBirthChanged"
-                       disabled="@_busy" />
-            <ValidationMessage For="@(() => _model.DateOfBirth)" />
-            @if (!string.IsNullOrWhiteSpace(_dobWarning))
-            {
-                <small class="text-muted d-block mt-1">@_dobWarning</small>
-            }
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label">Password</label>
-            <input type="password" class="form-control" @bind="_model.Password" placeholder="Password"
-                disabled="@_busy" />
-            <ValidationMessage For="@(() => _model.Password)" />
-            <small class="text-muted d-block mt-1">
-                Password must contain: uppercase, lowercase, digit, special character, and be at least 6 characters.
-            </small>
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label">Confirm Password</label>
-            <input type="password" class="form-control" @bind="_model.ConfirmPassword" placeholder="Confirm password"
-                disabled="@_busy" />
-            <ValidationMessage For="@(() => _model.ConfirmPassword)" />
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label">User Type</label>
-            <InputSelect class="form-select"
-                         @bind-Value="_model.Role"
-                         @bind-Value:after="OnRoleChanged"
-                         disabled="@_busy">
-                <option value="">-- Select a role --</option>
-                <option value="User">User (Request Services)</option>
-                <option value="ServiceProvider">Service Provider (Offer Services - Must be 18+)</option>
-            </InputSelect>
-            <ValidationMessage For="@(() => _model.Role)" />
-        </div>
-
-        @if (IsProviderRegistration)
+        @if (_step == AssistantStep.Intent)
         {
-            <section class="border rounded p-3 mb-3 bg-light" aria-label="Provider verification">
-                <h4 class="h6 mb-2">Provider verification</h4>
-                <p class="text-muted mb-3">
-                    Optional during registration. Uploading now helps mark your provider KYC as submitted.
-                </p>
-
-                <div class="mb-2">
-                    <label class="form-label">Government ID / verification document</label>
-                    <InputFile class="form-control"
-                               OnChange="HandleGovernmentIdSelected"
-                               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf"
-                               disabled="@_busy" />
-                    <small class="text-muted d-block mt-1">
-                        Accepted: JPG, PNG, GIF, WebP, or PDF. Maximum size: 5 MB.
-                    </small>
+            <section class="assistant-panel">
+                <div class="panel-heading">
+                    <h2>What do you want to do?</h2>
+                    <p>Request services and buy products are included with every account. Add commercial capabilities only when needed.</p>
                 </div>
 
-                @if (!string.IsNullOrWhiteSpace(_governmentIdFileError))
+                <div class="intent-grid">
+                    <div class="@GetIntentClass(IntendedUse.RequestServices, locked: true)">
+                        <span class="intent-icon">R</span>
+                        <strong>Request Services</strong>
+                        <span>Included: post service requests and compare provider bids.</span>
+                    </div>
+                    <div class="@GetIntentClass(IntendedUse.BuyProducts, locked: true)">
+                        <span class="intent-icon">B</span>
+                        <strong>Buy Products</strong>
+                        <span>Included: browse local product listings and delivery orders.</span>
+                    </div>
+                    <label class="@GetIntentClass(IntendedUse.ProvideServices)">
+                        <input type="checkbox" class="intent-checkbox" checked="@IsIntentSelected(IntendedUse.ProvideServices)" @onchange="args => SetOptionalIntent(IntendedUse.ProvideServices, args)" />
+                        <span class="intent-icon">P</span>
+                        <strong>Provide Services</strong>
+                        <span>Apply as a provider and bid after approval.</span>
+                    </label>
+                    <label class="@GetIntentClass(IntendedUse.SellProducts)">
+                        <input type="checkbox" class="intent-checkbox" checked="@IsIntentSelected(IntendedUse.SellProducts)" @onchange="args => SetOptionalIntent(IntendedUse.SellProducts, args)" />
+                        <span class="intent-icon">S</span>
+                        <strong>Sell Products</strong>
+                        <span>Apply as a seller and manage listings after approval.</span>
+                    </label>
+                </div>
+            </section>
+        }
+        else if (_step == AssistantStep.Account)
+        {
+            <section class="assistant-panel">
+                <div class="panel-heading">
+                    <h2>Basic account</h2>
+                    <p>This identity is shared across customer, provider, and seller workflows.</p>
+                </div>
+
+                <div class="form-grid two">
+                    <div>
+                        <label class="form-label">First Name</label>
+                        <InputText class="form-control" @bind-Value="_model.FirstName" placeholder="First name" disabled="@_busy" />
+                        <ValidationMessage For="@(() => _model.FirstName)" />
+                    </div>
+                    <div>
+                        <label class="form-label">Last Name</label>
+                        <InputText class="form-control" @bind-Value="_model.LastName" placeholder="Last name" disabled="@_busy" />
+                        <ValidationMessage For="@(() => _model.LastName)" />
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label">Email</label>
+                    <InputText class="form-control" @bind-Value="_model.Email" placeholder="Email" disabled="@_busy" />
+                    <ValidationMessage For="@(() => _model.Email)" />
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label">Phone Number</label>
+                    <InputText class="form-control" @bind-Value="_model.PhoneNumber" placeholder="Phone number" disabled="@_busy" />
+                    <ValidationMessage For="@(() => _model.PhoneNumber)" />
+                    <small class="text-muted d-block mt-1">Phone is required for all accounts and remains private unless contact sharing is approved.</small>
+                </div>
+            </section>
+        }
+        else if (_step == AssistantStep.Commercial)
+        {
+            <section class="assistant-panel">
+                <div class="panel-heading">
+                    <h2>Commercial onboarding</h2>
+                    <p>These details are submitted for admin review. GSTIN is optional for now.</p>
+                </div>
+
+                @if (WantsProvider)
                 {
-                    <div class="text-danger small" role="alert">@_governmentIdFileError</div>
+                    <h3 class="section-title">Provider details</h3>
+                    <div class="form-grid two">
+                        <div>
+                            <label class="form-label">Provider type</label>
+                            <InputSelect class="form-select" @bind-Value="_model.ProviderType" disabled="@_busy">
+                                <option value="Individual">Individual</option>
+                                <option value="Business">Business / Company</option>
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="form-label">Current or past profession</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderProfession" placeholder="Electrician, appliance technician, tutor..." disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Skills</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderSkills" placeholder="AC repair, wiring, plumbing..." disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Years of experience</label>
+                            <InputNumber class="form-control" @bind-Value="_model.ProviderYearsOfExperience" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Primary service category</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderPrimaryCategory" placeholder="Appliance Repair" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Service zone / area</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderServiceAreaZone" placeholder="Jadavpur, Salt Lake..." disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">City</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderServiceAreaCity" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">State</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderServiceAreaState" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Pricing type</label>
+                            <InputSelect class="form-select" @bind-Value="_model.ProviderPricingType" disabled="@_busy">
+                                <option value="VisitCharge">Visit charge</option>
+                                <option value="StartingPrice">Starting price</option>
+                                <option value="Hourly">Hourly</option>
+                                <option value="Fixed">Fixed</option>
+                                <option value="QuoteRequired">Quote required</option>
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="form-label">Rate / starting amount</label>
+                            <InputNumber class="form-control" @bind-Value="_model.ProviderRate" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Availability</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderAvailability" placeholder="Weekdays, weekends, evenings..." disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Languages</label>
+                            <InputText class="form-control" @bind-Value="_model.ProviderLanguages" placeholder="Bengali, Hindi, English" disabled="@_busy" />
+                        </div>
+                    </div>
                 }
-                else if (!string.IsNullOrWhiteSpace(_governmentIdFileName))
+
+                @if (WantsSeller)
                 {
-                    <div class="text-success small">Selected: @_governmentIdFileName</div>
+                    <h3 class="section-title">Seller details</h3>
+                    <div class="form-grid two">
+                        <div>
+                            <label class="form-label">Store / shop name</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerStoreName" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Business name</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerBusinessName" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">GSTIN (optional)</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerGstin" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">New / Used / Both</label>
+                            <InputSelect class="form-select" @bind-Value="_model.SellerProductConditionFocus" disabled="@_busy">
+                                <option value="New">New products</option>
+                                <option value="Used">Used products</option>
+                                <option value="Both">Both</option>
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="form-label">Product categories</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerProductCategories" placeholder="Electronics, appliances, tools..." disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">City</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerCity" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">State</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerState" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Pickup / shop / godown address</label>
+                            <InputText class="form-control" @bind-Value="_model.SellerPickupAddress" disabled="@_busy" />
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label">Store description</label>
+                        <InputTextArea class="form-control" @bind-Value="_model.SellerDescription" rows="3" disabled="@_busy" />
+                    </div>
+                }
+
+                @if (ShowBusinessSection)
+                {
+                    <h3 class="section-title">Business / company details</h3>
+                    <div class="form-grid two">
+                        <div>
+                            <label class="form-label">Legal name</label>
+                            <InputText class="form-control" @bind-Value="_model.BusinessLegalName" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Trading name</label>
+                            <InputText class="form-control" @bind-Value="_model.BusinessTradingName" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Business type</label>
+                            <InputSelect class="form-select" @bind-Value="_model.BusinessType" disabled="@_busy">
+                                <option value="SoleProprietorship">Sole proprietorship</option>
+                                <option value="Partnership">Partnership</option>
+                                <option value="LLP">LLP</option>
+                                <option value="PrivateLimited">Private limited</option>
+                                <option value="Other">Other</option>
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="form-label">GSTIN (optional)</label>
+                            <InputText class="form-control" @bind-Value="_model.BusinessGstin" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Website / domain</label>
+                            <InputText class="form-control" @bind-Value="_model.BusinessWebsiteOrDomain" placeholder="example.com" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Requested seats</label>
+                            <InputSelect class="form-select" @bind-Value="_model.RequestedSeatLimit" disabled="@_busy">
+                                <option value="5">5</option>
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                            </InputSelect>
+                        </div>
+                    </div>
+                    <div class="form-grid two mt-3">
+                        <div>
+                            <label class="form-label">Registered address</label>
+                            <InputTextArea class="form-control" @bind-Value="_model.BusinessRegisteredAddress" rows="3" disabled="@_busy" />
+                        </div>
+                        <div>
+                            <label class="form-label">Operating address</label>
+                            <InputTextArea class="form-control" @bind-Value="_model.BusinessOperatingAddress" rows="3" disabled="@_busy" />
+                        </div>
+                    </div>
+                }
+            </section>
+        }
+        else if (_step == AssistantStep.Security)
+        {
+            <section class="assistant-panel">
+                <div class="panel-heading">
+                    <h2>Security and age check</h2>
+                    <p>Provider accounts must be 18+. Seller and provider verification happens after login.</p>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Date of Birth</label>
+                    <InputDate class="form-control"
+                               @bind-Value="_model.DateOfBirth"
+                               @bind-Value:after="OnDateOfBirthChanged"
+                               disabled="@_busy" />
+                    <ValidationMessage For="@(() => _model.DateOfBirth)" />
+                    @if (!string.IsNullOrWhiteSpace(_dobWarning))
+                    {
+                        <small class="@GetAgeMessageClass()">@_dobWarning</small>
+                    }
+                </div>
+
+                <div class="form-grid two">
+                    <div>
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-control" @bind="_model.Password" placeholder="Password" disabled="@_busy" />
+                        <ValidationMessage For="@(() => _model.Password)" />
+                    </div>
+                    <div>
+                        <label class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" @bind="_model.ConfirmPassword" placeholder="Confirm password" disabled="@_busy" />
+                        <ValidationMessage For="@(() => _model.ConfirmPassword)" />
+                    </div>
+                </div>
+
+                <p class="password-hint">Use uppercase, lowercase, digit, special character, and at least 6 characters.</p>
+            </section>
+        }
+        else
+        {
+            <section class="assistant-panel">
+                <div class="panel-heading">
+                    <h2>Review and create account</h2>
+                    <p>@GetAccountPlanText()</p>
+                </div>
+
+                <div class="review-list">
+                    <div>
+                        <span>Name</span>
+                        <strong>@_model.FirstName @_model.LastName</strong>
+                    </div>
+                    <div>
+                        <span>Email</span>
+                        <strong>@_model.Email</strong>
+                    </div>
+                    <div>
+                        <span>Phone</span>
+                        <strong>@_model.PhoneNumber</strong>
+                    </div>
+                    <div>
+                        <span>Base access</span>
+                        <strong>Request Services + Buy Products</strong>
+                    </div>
+                    <div>
+                        <span>Commercial review</span>
+                        <strong>@GetCommercialReviewText()</strong>
+                    </div>
+                    <div>
+                        <span>Next after login</span>
+                        <strong>@GetNextStepText()</strong>
+                    </div>
+                    @if (ShowBusinessSection)
+                    {
+                        <div>
+                            <span>Requested seats</span>
+                            <strong>@_model.RequestedSeatLimit</strong>
+                        </div>
+                    }
+                </div>
+
+                @if (HasCommercialIntent)
+                {
+                    <div class="approval-note">
+                        Provider and seller capabilities stay approval-gated. After login, you will be sent to the first required application page.
+                    </div>
                 }
             </section>
         }
 
-        <button type="submit" class="btn btn-primary w-100 mb-2" disabled="@_busy">
-            @if (_busy)
+        <div class="assistant-actions">
+            @if (_step != AssistantStep.Intent)
             {
-                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                <span>Registering...</span>
+                <button type="button" class="btn btn-outline-secondary" @onclick="PreviousStep" disabled="@_busy">Back</button>
             }
             else
             {
-                <span>Register</span>
+                <button type="button" class="btn btn-link" @onclick="GoToLogin" disabled="@_busy">Already have an account?</button>
             }
-        </button>
-        <button type="button" class="btn btn-link w-100" @onclick="GoToLogin" disabled="@_busy">
-            Already have an account? Login here
-        </button>
+
+            @if (_step != AssistantStep.Review)
+            {
+                <button type="button" class="btn btn-primary" @onclick="NextStep" disabled="@_busy">Continue</button>
+            }
+            else
+            {
+                <button type="submit" class="btn btn-primary" disabled="@_busy">
+                    @if (_busy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Creating...</span>
+                    }
+                    else
+                    {
+                        <span>Create Account</span>
+                    }
+                </button>
+            }
+        </div>
     </EditForm>
 </div>
 
 @code {
-    private const long MaxGovernmentIdFileSizeBytes = 5 * 1024 * 1024;
-    private static readonly string[] AllowedGovernmentIdExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"];
-    private readonly RegisterModel _model = new() { Role = "User" };
+    private enum AssistantStep
+    {
+        Intent,
+        Account,
+        Commercial,
+        Security,
+        Review
+    }
+
+    [Flags]
+    private enum IntendedUse
+    {
+        None = 0,
+        RequestServices = 1,
+        BuyProducts = 2,
+        ProvideServices = 4,
+        SellProducts = 8
+    }
+
+    private readonly RegisterModel _model = new();
     private readonly SubmissionGuard _submissionGuard = new();
+    private static readonly EmailAddressAttribute EmailAddressValidator = new();
+    private EditContext _editContext = default!;
+    private AssistantStep _step = AssistantStep.Intent;
+    private IntendedUse _intendedUse = IntendedUse.RequestServices | IntendedUse.BuyProducts;
     private bool _busy;
     private bool _success;
     private string? _error;
     private string? _dobWarning;
-    private IBrowserFile? _governmentIdImage;
-    private string? _governmentIdFileName;
-    private string? _governmentIdFileError;
 
-    private bool IsProviderRegistration => _model.Role == "ServiceProvider";
+    private bool WantsProvider => _intendedUse.HasFlag(IntendedUse.ProvideServices);
+    private bool WantsSeller => _intendedUse.HasFlag(IntendedUse.SellProducts);
+    private bool HasCommercialIntent => WantsProvider || WantsSeller;
+    private bool ShowBusinessSection => WantsSeller || (WantsProvider && string.Equals(_model.ProviderType, "Business", StringComparison.OrdinalIgnoreCase));
 
     protected override void OnInitialized()
     {
+        _editContext = new EditContext(_model);
         OnDateOfBirthChanged();
     }
 
-    /// <summary>
-    /// Handles user registration with age validation:
-    /// 1. Check SubmissionGuard - ensure this is not a duplicate request
-    /// 2. Validate age based on role
-    /// 3. Validate government ID file if provided
-    /// 4. Call AuthApiClient.RegisterAsync
-    /// 5. On success: show success message ? redirect to /login
-    /// 6. On failure: display error message
-    /// 
-    /// Note: File upload is validated client-side but cannot be sent
-    /// to API from Blazor WebAssembly due to CORS and stream limitations.
-    /// TODO: Implement proper multipart file upload via dedicated endpoint.
-    /// </summary>
     private async Task HandleRegisterAsync()
     {
-        // GUARD: Check if this submission is allowed (prevents duplicate submissions)
         if (!await _submissionGuard.IsAllowedAsync("register"))
         {
-            Logger.LogWarning("[Register] Duplicate submission attempt blocked");
+            Logger.LogWarning("[RegisterAssistant] Duplicate submission attempt blocked");
             return;
         }
 
@@ -193,29 +458,19 @@
 
         try
         {
-            // Validate age for service provider role (client-side check)
-            if (_model.Role == "ServiceProvider")
+            if (!_editContext.Validate())
             {
-                var age = CalculateAge(_model.DateOfBirth);
-                if (age < 18)
-                {
-                    _error = $"Service providers must be at least 18 years old. You are currently {age} years old.";
-                    await _submissionGuard.ResetAsync("register");
-                    return;
-                }
-            }
-
-            if (!IsProviderRegistration)
-                ClearGovernmentIdSelection();
-
-            if (!string.IsNullOrWhiteSpace(_governmentIdFileError))
-            {
-                _error = _governmentIdFileError;
                 await _submissionGuard.ResetAsync("register");
                 return;
             }
-            
-            // Create request DTO with exact property names/types API expects
+
+            if (WantsProvider && CalculateAge(_model.DateOfBirth) < 18)
+            {
+                _error = "Service providers must be at least 18 years old.";
+                await _submissionGuard.ResetAsync("register");
+                return;
+            }
+
             var request = new RegisterRequest
             {
                 Email = _model.Email,
@@ -223,33 +478,35 @@
                 FirstName = _model.FirstName,
                 LastName = _model.LastName,
                 DateOfBirth = _model.DateOfBirth,
-                Role = _model.Role  // MUST be "User" or "ServiceProvider" (case-sensitive)
+                Role = WantsProvider ? "ServiceProvider" : "User",
+                PhoneNumber = _model.PhoneNumber,
+                CommercialOnboarding = BuildCommercialOnboardingRequest()
             };
 
-            Logger.LogInformation("[Register] Sending registration request for: {Email}, Role: {Role}, Age: {Age}",
-                request.Email, request.Role, CalculateAge(_model.DateOfBirth));
+            Logger.LogInformation(
+                "[RegisterAssistant] Registration request for {Email}. ProviderIntent: {ProviderIntent}, SellerIntent: {SellerIntent}",
+                request.Email,
+                WantsProvider,
+                WantsSeller);
 
-            // Call AuthApiClient - returns result object (never throws)
-            var result = await AuthApi.RegisterAsync(request, IsProviderRegistration ? _governmentIdImage : null);
-
+            var result = await AuthApi.RegisterAsync(request);
             if (!result.Success)
             {
-                // Registration failed - display user-friendly error message
                 _error = result.Error ?? "Registration failed. Please try again.";
-                Logger.LogWarning("[Register] Registration failed: {Error}", _error);
-                
-                // Reset submission guard on error so user can retry
                 await _submissionGuard.ResetAsync("register");
                 return;
             }
 
-            Logger.LogInformation("[Register] Registration successful for: {Email}", request.Email);
-
             _success = true;
+            await IntentStorage.SaveAsync(new RegistrationIntentState
+            {
+                WantsServices = _intendedUse.HasFlag(IntendedUse.RequestServices),
+                WantsProducts = _intendedUse.HasFlag(IntendedUse.BuyProducts),
+                WantsProvider = WantsProvider,
+                WantsSeller = WantsSeller
+            });
 
-            // Brief delay to show success message before redirect
-            await Task.Delay(1500);
-
+            await Task.Delay(1200);
             Nav.NavigateTo("/login");
         }
         finally
@@ -258,24 +515,153 @@
         }
     }
 
-    /// <summary>
-    /// Calculates user age from date of birth.
-    /// </summary>
+    private void SetOptionalIntent(IntendedUse intent, ChangeEventArgs args)
+    {
+        if (intent is IntendedUse.RequestServices or IntendedUse.BuyProducts)
+            return;
+
+        var selected = args.Value is bool boolValue && boolValue;
+
+        if (selected)
+            _intendedUse |= intent;
+        else
+            _intendedUse &= ~intent;
+
+        _error = null;
+        OnDateOfBirthChanged();
+    }
+
+    private void NextStep()
+    {
+        _error = null;
+        if (_step == AssistantStep.Account && !ValidateAccountStep())
+            return;
+
+        if (_step == AssistantStep.Commercial && !ValidateCommercialStep())
+            return;
+
+        if (_step == AssistantStep.Security && !ValidateSecurityStep())
+            return;
+
+        _step = GetNextStep(_step);
+    }
+
+    private void PreviousStep()
+    {
+        _error = null;
+        if (_step != AssistantStep.Intent)
+            _step = GetPreviousStep(_step);
+    }
+
+    private AssistantStep GetNextStep(AssistantStep step)
+    {
+        if (step == AssistantStep.Account && !HasCommercialIntent)
+            return AssistantStep.Security;
+
+        return step == AssistantStep.Review ? AssistantStep.Review : step + 1;
+    }
+
+    private AssistantStep GetPreviousStep(AssistantStep step)
+    {
+        if (step == AssistantStep.Security && !HasCommercialIntent)
+            return AssistantStep.Account;
+
+        return step == AssistantStep.Intent ? AssistantStep.Intent : step - 1;
+    }
+
+    private bool ValidateAccountStep()
+    {
+        var valid = !string.IsNullOrWhiteSpace(_model.FirstName)
+            && !string.IsNullOrWhiteSpace(_model.LastName)
+            && !string.IsNullOrWhiteSpace(_model.Email)
+            && EmailAddressValidator.IsValid(_model.Email)
+            && !string.IsNullOrWhiteSpace(_model.PhoneNumber)
+            && CountDigits(_model.PhoneNumber) is >= 10 and <= 15;
+
+        if (!valid)
+            _error = "Please enter a valid name, email, and 10 to 15 digit phone number before continuing.";
+
+        return valid;
+    }
+
+    private bool ValidateCommercialStep()
+    {
+        if (!HasCommercialIntent)
+            return true;
+
+        if (WantsProvider)
+        {
+            if (string.IsNullOrWhiteSpace(_model.ProviderSkills) ||
+                string.IsNullOrWhiteSpace(_model.ProviderProfession) ||
+                string.IsNullOrWhiteSpace(_model.ProviderPrimaryCategory) ||
+                string.IsNullOrWhiteSpace(_model.ProviderServiceAreaCity) ||
+                string.IsNullOrWhiteSpace(_model.ProviderServiceAreaState) ||
+                _model.ProviderRate <= 0)
+            {
+                _error = "Please complete provider skills, profession, category, area, and rate before continuing.";
+                return false;
+            }
+        }
+
+        if (WantsSeller)
+        {
+            if (string.IsNullOrWhiteSpace(_model.SellerStoreName) ||
+                string.IsNullOrWhiteSpace(_model.SellerPickupAddress) ||
+                string.IsNullOrWhiteSpace(_model.SellerCity) ||
+                string.IsNullOrWhiteSpace(_model.SellerState))
+            {
+                _error = "Please complete seller store name, pickup address, city, and state before continuing.";
+                return false;
+            }
+        }
+
+        if (ShowBusinessSection && _model.RequestedSeatLimit is not (5 or 10 or 20))
+        {
+            _error = "Requested seats must be 5, 10, or 20.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateSecurityStep()
+    {
+        if (_model.DateOfBirth.Date > DateTime.Today)
+        {
+            _error = "Date of birth cannot be in the future.";
+            return false;
+        }
+
+        if (WantsProvider && CalculateAge(_model.DateOfBirth) < 18)
+        {
+            _error = "Service providers must be at least 18 years old.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Password) || _model.Password.Length < 6)
+        {
+            _error = "Password must be at least 6 characters.";
+            return false;
+        }
+
+        if (!string.Equals(_model.Password, _model.ConfirmPassword, StringComparison.Ordinal))
+        {
+            _error = "Passwords do not match.";
+            return false;
+        }
+
+        return true;
+    }
+
     private int CalculateAge(DateTime dateOfBirth)
     {
         var today = DateTime.Today;
         var age = today.Year - dateOfBirth.Year;
         if (dateOfBirth.Date > today.AddYears(-age))
-        {
             age--;
-        }
         return age;
     }
 
-    /// <summary>
-    /// Updates DOB warning message when date changes.
-    /// Shows user their calculated age and any age-related restrictions.
-    /// </summary>
     private void OnDateOfBirthChanged()
     {
         if (_model.DateOfBirth == default)
@@ -291,63 +677,137 @@
             return;
         }
 
-        _dobWarning = _model.Role == "ServiceProvider" && age < 18
-            ? $"You must be 18+ to register as a Service Provider. You are {age} years old."
+        _dobWarning = WantsProvider && age < 18
+            ? $"You must be 18+ to provide services. You are {age} years old."
             : $"Age: {age} years old";
     }
 
-    /// <summary>
-    /// Called whenever the role dropdown changes.
-    /// Updates DOB warning to show age requirements for selected role.
-    /// </summary>
-    private void OnRoleChanged()
+    private string GetIntentClass(IntendedUse intent)
     {
-        if (!IsProviderRegistration)
-            ClearGovernmentIdSelection();
-
-        OnDateOfBirthChanged(); // Re-validate age based on new role
+        return GetIntentClass(intent, locked: false);
     }
 
-    private void HandleGovernmentIdSelected(InputFileChangeEventArgs args)
+    private string GetIntentClass(IntendedUse intent, bool locked)
     {
-        _governmentIdImage = null;
-        _governmentIdFileName = null;
-        _governmentIdFileError = null;
-
-        var file = args.File;
-        if (file is null)
-            return;
-
-        var extension = Path.GetExtension(file.Name);
-        if (!AllowedGovernmentIdExtensions.Any(e => e.Equals(extension, StringComparison.OrdinalIgnoreCase)))
-        {
-            _governmentIdFileError = "Please choose a JPG, PNG, GIF, WebP, or PDF file.";
-            return;
-        }
-
-        if (file.Size > MaxGovernmentIdFileSizeBytes)
-        {
-            _governmentIdFileError = "Verification document must be 5 MB or smaller.";
-            return;
-        }
-
-        _governmentIdImage = file;
-        _governmentIdFileName = file.Name;
+        var classes = IsIntentSelected(intent) ? "intent-card selected" : "intent-card";
+        return locked ? $"{classes} locked" : classes;
     }
 
-    private void ClearGovernmentIdSelection()
+    private bool IsIntentSelected(IntendedUse intent)
     {
-        _governmentIdImage = null;
-        _governmentIdFileName = null;
-        _governmentIdFileError = null;
+        return (_intendedUse & intent) == intent;
+    }
+
+    private string GetStepClass(AssistantStep step)
+    {
+        if (step == _step)
+            return "active";
+
+        return step < _step ? "complete" : string.Empty;
+    }
+
+    private string GetAgeMessageClass()
+    {
+        return WantsProvider && CalculateAge(_model.DateOfBirth) < 18
+            ? "text-danger d-block mt-1"
+            : "text-muted d-block mt-1";
+    }
+
+    private string GetCommercialReviewText()
+    {
+        if (WantsProvider && WantsSeller)
+            return "Provider and seller applications";
+
+        if (WantsProvider)
+            return "Provider application";
+
+        if (WantsSeller)
+            return "Seller application";
+
+        return "None";
+    }
+
+    private string GetAccountPlanText()
+    {
+        return HasCommercialIntent
+            ? "Your account is active for request/buy workflows. Commercial capabilities are submitted for admin review."
+            : "Your account is ready for customer marketplace workflows.";
+    }
+
+    private string GetNextStepText()
+    {
+        if (WantsProvider && WantsSeller)
+            return "Complete provider and seller applications";
+
+        if (WantsProvider)
+            return "Complete provider application";
+
+        if (WantsSeller)
+            return "Complete seller application";
+
+        return "Go to your dashboard";
+    }
+
+    private RegistrationCommercialOnboardingRequest BuildCommercialOnboardingRequest()
+    {
+        return new RegistrationCommercialOnboardingRequest
+        {
+            WantsProvider = WantsProvider,
+            WantsSeller = WantsSeller,
+            Business = ShowBusinessSection
+                ? new RegistrationBusinessDetailsRequest
+                {
+                    LegalName = _model.BusinessLegalName,
+                    TradingName = _model.BusinessTradingName,
+                    BusinessType = _model.BusinessType,
+                    Gstin = _model.BusinessGstin,
+                    WebsiteOrDomain = _model.BusinessWebsiteOrDomain,
+                    RegisteredAddress = _model.BusinessRegisteredAddress,
+                    OperatingAddress = _model.BusinessOperatingAddress,
+                    RequestedSeatLimit = _model.RequestedSeatLimit
+                }
+                : null,
+            Provider = WantsProvider
+                ? new RegistrationProviderDetailsRequest
+                {
+                    ProviderType = _model.ProviderType,
+                    Skills = _model.ProviderSkills,
+                    Profession = _model.ProviderProfession,
+                    YearsOfExperience = _model.ProviderYearsOfExperience,
+                    PrimaryCategory = _model.ProviderPrimaryCategory,
+                    ServiceAreaCity = _model.ProviderServiceAreaCity,
+                    ServiceAreaState = _model.ProviderServiceAreaState,
+                    ServiceAreaZone = _model.ProviderServiceAreaZone,
+                    PricingType = _model.ProviderPricingType,
+                    Rate = _model.ProviderRate,
+                    Availability = _model.ProviderAvailability,
+                    Languages = _model.ProviderLanguages
+                }
+                : null,
+            Seller = WantsSeller
+                ? new RegistrationSellerDetailsRequest
+                {
+                    StoreName = _model.SellerStoreName,
+                    BusinessName = _model.SellerBusinessName,
+                    Gstin = _model.SellerGstin,
+                    ProductCategories = _model.SellerProductCategories,
+                    ProductConditionFocus = _model.SellerProductConditionFocus,
+                    PickupAddress = _model.SellerPickupAddress,
+                    City = _model.SellerCity,
+                    State = _model.SellerState,
+                    Description = _model.SellerDescription
+                }
+                : null
+        };
+    }
+
+    private static int CountDigits(string value)
+    {
+        return value.Count(char.IsDigit);
     }
 
     private void GoToLogin() => Nav.NavigateTo("/login");
 
-    /// <summary>
-    /// View model for registration form with client-side validation.
-    /// All properties match API's RegisterRequest DTO exactly.
-    /// </summary>
     private sealed class RegisterModel
     {
         [Required(ErrorMessage = "First name is required")]
@@ -362,6 +822,10 @@
         [EmailAddress(ErrorMessage = "Invalid email format")]
         public string Email { get; set; } = string.Empty;
 
+        [Required(ErrorMessage = "Phone number is required")]
+        [StringLength(20, ErrorMessage = "Phone number cannot exceed 20 characters")]
+        public string PhoneNumber { get; set; } = string.Empty;
+
         [Required(ErrorMessage = "Password is required")]
         [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
         public string Password { get; set; } = string.Empty;
@@ -371,9 +835,38 @@
         public string ConfirmPassword { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Date of birth is required")]
-        public DateTime DateOfBirth { get; set; } = DateTime.Today.AddYears(-25); // Default to 25 years old
+        public DateTime DateOfBirth { get; set; } = DateTime.Today.AddYears(-25);
 
-        [Required(ErrorMessage = "Please select a role")]
-        public string Role { get; set; } = "User";
+        public string ProviderType { get; set; } = "Individual";
+        public string ProviderSkills { get; set; } = string.Empty;
+        public string ProviderProfession { get; set; } = string.Empty;
+        public int? ProviderYearsOfExperience { get; set; }
+        public string ProviderPrimaryCategory { get; set; } = string.Empty;
+        public string ProviderServiceAreaCity { get; set; } = "Kolkata";
+        public string ProviderServiceAreaState { get; set; } = "West Bengal";
+        public string? ProviderServiceAreaZone { get; set; }
+        public string ProviderPricingType { get; set; } = "StartingPrice";
+        public decimal ProviderRate { get; set; }
+        public string? ProviderAvailability { get; set; }
+        public string? ProviderLanguages { get; set; }
+
+        public string SellerStoreName { get; set; } = string.Empty;
+        public string? SellerBusinessName { get; set; }
+        public string? SellerGstin { get; set; }
+        public string? SellerProductCategories { get; set; }
+        public string SellerProductConditionFocus { get; set; } = "Both";
+        public string SellerPickupAddress { get; set; } = string.Empty;
+        public string SellerCity { get; set; } = "Kolkata";
+        public string SellerState { get; set; } = "West Bengal";
+        public string? SellerDescription { get; set; }
+
+        public string? BusinessLegalName { get; set; }
+        public string? BusinessTradingName { get; set; }
+        public string BusinessType { get; set; } = "SoleProprietorship";
+        public string? BusinessGstin { get; set; }
+        public string? BusinessWebsiteOrDomain { get; set; }
+        public string? BusinessRegisteredAddress { get; set; }
+        public string? BusinessOperatingAddress { get; set; }
+        public int RequestedSeatLimit { get; set; } = 5;
     }
 }

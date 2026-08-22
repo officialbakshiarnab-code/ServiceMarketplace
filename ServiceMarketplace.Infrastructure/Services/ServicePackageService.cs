@@ -13,7 +13,8 @@ public sealed class ServicePackageService(
     AppDbContext context,
     IServiceOrderService orderService,
     IServiceOrderAuditService auditService,
-    INotificationService notificationService) : IServicePackageService
+    INotificationService notificationService,
+    IConversationService conversationService) : IServicePackageService
 {
     public async Task<List<ServicePackageDto>> GetActiveAsync(Guid? categoryId = null, Guid? zoneId = null)
     {
@@ -163,6 +164,10 @@ public sealed class ServicePackageService(
             null,
             order.Status.ToString(),
             $"Booked package {package.Id}.");
+        await conversationService.EnsureServiceOrderConversationAsync(
+            order.Id,
+            "Order confirmed from a fixed-price service package. You can now use this secure service-order chat.",
+            $"service-order:{order.Id:N}:created-from-package");
 
         await notificationService.NotifyServiceOrderCreatedAsync(order.Id);
 

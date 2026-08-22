@@ -7,6 +7,7 @@
 @inject TokenAuthenticationStateProvider AuthStateProvider
 @inject AuthRedirector Redirector
 @inject AdminAccessGuard AdminAccessGuard
+@inject IRegistrationIntentStorage IntentStorage
 @inject NavigationManager Nav
 @inject ILogger<Login> Logger
 
@@ -128,12 +129,41 @@
                 return;
             }
 
-            await Redirector.RedirectToDashboardAsync();
+            if (!await RedirectToRegistrationIntentAsync())
+                await Redirector.RedirectToDashboardAsync();
         }
         finally
         {
             _busy = false;
         }
+    }
+
+    private async Task<bool> RedirectToRegistrationIntentAsync()
+    {
+        var intent = await IntentStorage.GetAsync();
+        if (intent == null)
+            return false;
+
+        await IntentStorage.ClearAsync();
+
+        if ((DateTime.UtcNow - intent.CreatedAt) > TimeSpan.FromMinutes(30))
+            return false;
+
+        if (intent.WantsProvider)
+        {
+            Logger.LogInformation("[Login] Redirecting to provider application from registration intent.");
+            Nav.NavigateTo("/account/provider-application", forceLoad: false);
+            return true;
+        }
+
+        if (intent.WantsSeller)
+        {
+            Logger.LogInformation("[Login] Redirecting to seller application from registration intent.");
+            Nav.NavigateTo("/account/seller-application", forceLoad: false);
+            return true;
+        }
+
+        return false;
     }
 
     private void GoToRegister() => Nav.NavigateTo("/register");

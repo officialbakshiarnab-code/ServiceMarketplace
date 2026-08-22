@@ -9,11 +9,13 @@ namespace ServiceMarketplace.Infrastructure.Services;
 
 public sealed class ServiceOrderCommunicationService(
     AppDbContext context,
-    INotificationService notificationService) : IServiceOrderCommunicationService
+    INotificationService notificationService,
+    IConversationService conversationService) : IServiceOrderCommunicationService
 {
     public async Task<List<ServiceOrderMessageDto>> GetMessagesAsync(Guid orderId, string userId)
     {
         await GetParticipantOrderAsync(orderId, userId);
+        await conversationService.SyncServiceOrderMessagesAsync(orderId);
 
         return await context.ServiceOrderMessages
             .AsNoTracking()
@@ -43,6 +45,13 @@ public sealed class ServiceOrderCommunicationService(
         context.ServiceOrderMessages.Add(message);
         await context.SaveChangesAsync();
 
+        var conversationId = await conversationService.EnsureServiceOrderConversationAsync(order.Id);
+        await conversationService.SendMessageAsync(conversationId, senderUserId, new SendConversationMessageDto
+        {
+            Body = body,
+            ClientMessageId = ToConversationClientMessageId(message.Id)
+        });
+
         await notificationService.NotifyOrderMessageReceivedAsync(message.Id);
         return ToDto(message);
     }
@@ -62,6 +71,8 @@ public sealed class ServiceOrderCommunicationService(
         }
 
         await context.SaveChangesAsync();
+        var conversationId = await conversationService.SyncServiceOrderMessagesAsync(orderId);
+        await conversationService.MarkReadAsync(conversationId, userId);
         return unread.Count;
     }
 
@@ -104,5 +115,10 @@ public sealed class ServiceOrderCommunicationService(
             ReadAt = message.ReadAt,
             CreatedAt = message.CreatedAt
         };
+    }
+
+    private static string ToConversationClientMessageId(Guid messageId)
+    {
+        return $"legacy-service-order-message:{messageId:N}";
     }
 }

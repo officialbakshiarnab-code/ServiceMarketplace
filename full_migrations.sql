@@ -1545,5 +1545,299 @@ BEGIN
     VALUES ('20260809184129_AddContactRequestsAndProfileDirectory', '9.0.0');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE TABLE "Conversations" (
+        "Id" uuid NOT NULL,
+        "ContextType" smallint NOT NULL,
+        "Status" smallint NOT NULL DEFAULT 1,
+        "ServiceOrderId" uuid,
+        "Subject" character varying(200) NOT NULL,
+        "LastMessageAt" timestamp with time zone,
+        "LastMessageId" uuid,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_Conversations" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_Conversations_ServiceOrders_ServiceOrderId" FOREIGN KEY ("ServiceOrderId") REFERENCES "ServiceOrders" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE TABLE "ConversationParticipants" (
+        "Id" uuid NOT NULL,
+        "ConversationId" uuid NOT NULL,
+        "UserId" character varying(450) NOT NULL,
+        "ParticipantKind" smallint NOT NULL,
+        "JoinedAt" timestamp with time zone NOT NULL,
+        "LeftAt" timestamp with time zone,
+        "LastReadMessageId" uuid,
+        "LastReadAt" timestamp with time zone,
+        "IsMuted" boolean NOT NULL DEFAULT FALSE,
+        "IsArchived" boolean NOT NULL DEFAULT FALSE,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_ConversationParticipants" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_ConversationParticipants_Conversations_ConversationId" FOREIGN KEY ("ConversationId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE TABLE "Messages" (
+        "Id" uuid NOT NULL,
+        "ConversationId" uuid NOT NULL,
+        "SenderUserId" character varying(450) NOT NULL,
+        "Type" smallint NOT NULL,
+        "Body" character varying(4000) NOT NULL,
+        "ClientMessageId" character varying(100),
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_Messages" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_Messages_Conversations_ConversationId" FOREIGN KEY ("ConversationId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE INDEX "IX_ConversationParticipants_UserArchivedConversation" ON "ConversationParticipants" ("UserId", "IsArchived", "ConversationId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE UNIQUE INDEX "UX_ConversationParticipants_ConversationUser" ON "ConversationParticipants" ("ConversationId", "UserId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE INDEX "IX_Conversations_ContextLastMessage" ON "Conversations" ("ContextType", "LastMessageAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE UNIQUE INDEX "UX_Conversations_ServiceOrderId" ON "Conversations" ("ServiceOrderId") WHERE "ServiceOrderId" IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE INDEX "IX_Messages_ConversationCreatedId" ON "Messages" ("ConversationId", "CreatedAt", "Id");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    CREATE UNIQUE INDEX "UX_Messages_ConversationClientMessage" ON "Messages" ("ConversationId", "ClientMessageId") WHERE "ClientMessageId" IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810143017_AddConversationsAndInbox') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260810143017_AddConversationsAndInbox', '9.0.0');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144615_AddMessageReportsAndChatSafety') THEN
+    CREATE TABLE "MessageReports" (
+        "Id" uuid NOT NULL,
+        "ConversationId" uuid NOT NULL,
+        "MessageId" uuid NOT NULL,
+        "ReporterUserId" character varying(450) NOT NULL,
+        "ReportedSenderUserId" character varying(450) NOT NULL,
+        "Reason" character varying(120) NOT NULL,
+        "Details" character varying(1000),
+        "Status" smallint NOT NULL DEFAULT 1,
+        "ReviewedByUserId" character varying(450),
+        "ReviewedAt" timestamp with time zone,
+        "ReviewNotes" character varying(1000),
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_MessageReports" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_MessageReports_Conversations_ConversationId" FOREIGN KEY ("ConversationId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE,
+        CONSTRAINT "FK_MessageReports_Messages_MessageId" FOREIGN KEY ("MessageId") REFERENCES "Messages" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144615_AddMessageReportsAndChatSafety') THEN
+    CREATE INDEX "IX_MessageReports_ConversationMessage" ON "MessageReports" ("ConversationId", "MessageId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144615_AddMessageReportsAndChatSafety') THEN
+    CREATE INDEX "IX_MessageReports_StatusCreated" ON "MessageReports" ("Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144615_AddMessageReportsAndChatSafety') THEN
+    CREATE UNIQUE INDEX "UX_MessageReports_MessageReporter" ON "MessageReports" ("MessageId", "ReporterUserId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144615_AddMessageReportsAndChatSafety') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260810144615_AddMessageReportsAndChatSafety', '9.0.0');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144906_AddDeviceRegistrationsForPushPrep') THEN
+    CREATE TABLE "DeviceRegistrations" (
+        "Id" uuid NOT NULL,
+        "UserId" character varying(450) NOT NULL,
+        "Platform" smallint NOT NULL,
+        "DeviceToken" character varying(512) NOT NULL,
+        "DeviceName" character varying(120),
+        "IsActive" boolean NOT NULL DEFAULT TRUE,
+        "LastSeenAt" timestamp with time zone NOT NULL,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone,
+        CONSTRAINT "PK_DeviceRegistrations" PRIMARY KEY ("Id")
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144906_AddDeviceRegistrationsForPushPrep') THEN
+    CREATE INDEX "IX_DeviceRegistrations_UserActiveSeen" ON "DeviceRegistrations" ("UserId", "IsActive", "LastSeenAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144906_AddDeviceRegistrationsForPushPrep') THEN
+    CREATE UNIQUE INDEX "UX_DeviceRegistrations_UserPlatformToken" ON "DeviceRegistrations" ("UserId", "Platform", "DeviceToken");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260810144906_AddDeviceRegistrationsForPushPrep') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260810144906_AddDeviceRegistrationsForPushPrep', '9.0.0');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Messages" ADD "HiddenAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Messages" ADD "HiddenByUserId" character varying(450);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Messages" ADD "HiddenReason" character varying(1000);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Messages" ADD "IsHidden" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "MessageReports" ADD "ConversationRestricted" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "MessageReports" ADD "LegalHoldUntil" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "MessageReports" ADD "MessageHidden" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Conversations" ADD "ClosedAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Conversations" ADD "LegalHoldUntil" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Conversations" ADD "RetainUntil" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    ALTER TABLE "Conversations" ADD "RetentionNotes" character varying(1000);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    CREATE INDEX "IX_Conversations_StatusRetainUntil" ON "Conversations" ("Status", "RetainUntil");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260811110554_AddPhase23PilotHardening') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260811110554_AddPhase23PilotHardening', '9.0.0');
+    END IF;
+END $EF$;
 COMMIT;
 

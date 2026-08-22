@@ -25,6 +25,8 @@ public interface IAuthService
         string firstName,
         string lastName,
         DateTime dateOfBirth,
+        string phoneNumber,
+        RegistrationCommercialOnboardingDto? commercialOnboarding = null,
         object? governmentIdImage = null);
 
     Task<AuthLoginResult> LoginAsync(string email, string password, string? userAgent, string? ipAddress);

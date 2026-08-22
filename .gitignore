@@ -396,3 +396,11 @@ scripts/seed-demo-data.ps1
 scripts/*.local.ps1
 scripts/*generated*.ps1
 scripts/*seed-output*
+
+# Local cloud/mobile credentials
+# Configure these through user-secrets or environment variables; never commit service account files.
+firebase-service-account*.json
+*firebase*service-account*.json
+*fcm*service-account*.json
+google-services.json
+GoogleService-Info.plist

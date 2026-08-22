@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ServiceMarketplace.Application.Interfaces;
 using ServiceMarketplace.Infrastructure.Data;
 
 namespace ServiceMarketplace.API.Tests.Fixtures;
@@ -52,11 +53,14 @@ public class ServiceMarketplaceWebApplicationFactory : WebApplicationFactory<Pro
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.RemoveAll<AppDbContext>();
+            services.RemoveAll<IPushNotificationSender>();
 
             services.AddDbContext<AppDbContext>(options =>
             {
                 options.UseInMemoryDatabase(_databaseName);
             });
+
+            services.AddSingleton<IPushNotificationSender, RecordingPushNotificationSender>();
         });
     }
 

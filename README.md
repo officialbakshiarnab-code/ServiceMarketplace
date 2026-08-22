@@ -5,6 +5,8 @@ A full-stack service marketplace platform that connects customers seeking servic
 ## Features
 
 - Customer, service provider, both-role, and admin account types
+- One-account marketplace model: Request Services and Buy Products are default account capabilities; Provide Services and Sell Products are approval-gated commercial capabilities
+- Deterministic registration assistant with mandatory private phone number, password confirmation, review step, and provider/seller onboarding intent capture
 - Service request lifecycle from posting through bidding and completion
 - JWT authentication with refresh token rotation and revocation tracking
 - Role-based API authorization policies
@@ -15,7 +17,8 @@ A full-stack service marketplace platform that connects customers seeking servic
 - Provider request matching by approved category/zone coverage
 - Bid comparison with provider profile context and estimated duration
 - Service order/job lifecycle after bid acceptance
-- Order-scoped customer/provider messaging after bid acceptance
+- Unified Inbox with persisted service-order conversations, participant state, unread tracking, SignalR refresh events, and legacy order-message compatibility
+- Chat safety with participant-only access, system messages, message reports, admin moderation, conversation restriction, and privacy-minimal push preparation
 - Persistent notification inbox for bid, order lifecycle, and message events
 - Offline/direct payment recording before customer completion
 - Transaction-backed customer reviews with provider rating aggregates
@@ -29,6 +32,7 @@ A full-stack service marketplace platform that connects customers seeking servic
 - Product delivery orders with buyer/seller tracking, stock reservation, cancellation, and seller fulfillment status updates
 - Platform payment intent, admin verification, provider payout, and service-order dispute foundations
 - Unified marketplace search across fixed-price service packages and product listings
+- Controlled operator admin bootstrap through `ServiceMarketplace.AdminTool` and `scripts/bootstrap-admin.ps1`
 - API rate limiting, security headers, and health checks
 
 ## Architecture
@@ -51,7 +55,7 @@ A full-stack service marketplace platform that connects customers seeking servic
 | Web UI | Blazor WebAssembly (.NET 9) |
 | Mobile UI | .NET MAUI Hybrid |
 | Shared Components | Razor Components |
-| Architecture | Clean Architecture |
+| Architecture | Layered/Clean-inspired modular monolith |
 
 ## Getting Started
 
@@ -76,6 +80,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-local-dev.ps1 -StartPos
 ```
 
 See `LOCAL_TESTING.md` for troubleshooting and custom PostgreSQL credentials.
+
+To start both the API and Web UI after setup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-dev.ps1
+```
+
+The Web UI runs at `https://localhost:7241` and calls the API at `https://localhost:7147`.
 
 ### Configuration
 
@@ -122,6 +134,7 @@ Use `DATABASE_SETUP.md` for local PostgreSQL setup and `full_migrations.sql` for
 - Refresh tokens are stored hashed in the database.
 - Session IDs are tracked through JWT `jti` claims and audit logs.
 - Public registration allows only `User`, `ServiceProvider`, and `Both`; `Admin` accounts must be provisioned outside public registration.
+- Public registration requires a phone number, stores a normalized private phone value, and rejects duplicate normalized phone numbers.
 - JWTs include marketplace capability claims such as `service.customer` and `service.provider`.
 - Administrative access uses separate administrative permission claims such as `platform.admin`.
 - Provider browsing and bidding require an active, KYC-approved provider account with provider capability.
@@ -131,7 +144,11 @@ Use `DATABASE_SETUP.md` for local PostgreSQL setup and `full_migrations.sql` for
 - Provider-facing request listings hide exact customer location, coordinates, and customer IDs before bid acceptance.
 - Accepted providers can view exact job location and coordinates for the accepted request.
 - Accepted bids create service orders with Pending Start, In Progress, Provider Completed, Completed, and Cancelled states.
-- Accepted order participants can message each other from their order pages.
+- Accepted order participants can message each other from their order pages and from the unified Inbox.
+- Service-order chat is backed by `Conversations`, `ConversationParticipants`, and `Messages`; legacy `ServiceOrderMessages` remains synchronized for compatibility.
+- Chat does not expose phone, email, exact private address, KYC, or bank details; approved contact requests remain the separate private-contact workflow.
+- SignalR is used only as a realtime notification transport after PostgreSQL persistence; REST remains the authoritative source.
+- Device registration and FCM sender plumbing exist for opt-in privacy-minimal push delivery.
 - Notifications are created for accepted bids, order creation/start/completion/cancellation, and received order messages.
 - Customer completion requires a recorded non-platform payment method for the agreed amount.
 - Completed orders can receive one customer review, and provider average rating/review count are updated.
@@ -153,6 +170,8 @@ Use `DATABASE_SETUP.md` for local PostgreSQL setup and `full_migrations.sql` for
 - Released platform payments create pending provider payout records with platform fee and provider payout amounts.
 - Participants can open disputes while payment is held; admins can refund the customer, release the provider, or reject the dispute.
 - Users can search services and products from one marketplace surface with keyword, type, zone, category, condition, price, and sort filters.
+- Provider/seller registration intent and submitted commercial profile data use the existing provider/seller application aggregates; commercial access starts only after admin approval.
+- Admin accounts use the same `Users`, `Roles`, and `UserRoles` auth model, but first-admin/bootstrap operations are operator-controlled, idempotent, and audited.
 
 ## Project Structure
 
@@ -177,6 +196,7 @@ dotnet test ServiceMarketplace.sln --no-build
 
 Integration tests cover registration, login, token refresh, authorization, bids, and request workflows.
 They also cover provider application submission/review, capability claims, approval gates, catalog-backed request creation, provider matching, bid comparison, accepted-provider address disclosure, service order lifecycle flows, order messaging, notification inbox behavior, payment recording, completion hardening, transaction-backed reviews, review moderation, fixed-price service package booking, seller approval, product listing management, buyer product browsing, used-product condition disclosure, inspection guidance, product delivery order lifecycle behavior, platform payment verification, payout creation, dispute refunds, unified marketplace search, and the MVP Gate A full service transaction smoke path.
+The current merged baseline also includes integration coverage for dynamic registration, phone uniqueness, conversation inbox/chat authorization, unread/read behavior, message reports, device registration, push fallback, and controlled admin provisioning.
 
 ## Production Notes
 

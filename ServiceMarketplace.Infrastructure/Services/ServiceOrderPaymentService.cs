@@ -11,7 +11,8 @@ namespace ServiceMarketplace.Infrastructure.Services;
 public sealed class ServiceOrderPaymentService(
     AppDbContext context,
     INotificationService notificationService,
-    IServiceOrderAuditService auditService) : IServiceOrderPaymentService
+    IServiceOrderAuditService auditService,
+    IConversationService conversationService) : IServiceOrderPaymentService
 {
     public async Task<ServiceOrderPaymentDto?> GetForOrderAsync(Guid orderId, string userId)
     {
@@ -69,6 +70,10 @@ public sealed class ServiceOrderPaymentService(
             null,
             payment.Status.ToString(),
             $"{payment.Method} payment recorded for {payment.Amount:0.00}.");
+        await conversationService.AddServiceOrderSystemMessageAsync(
+            order.Id,
+            "Payment was recorded for this service order.",
+            "payment-recorded");
         await notificationService.NotifyServiceOrderPaymentRecordedAsync(payment.Id);
 
         return ToDto(payment);

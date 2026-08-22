@@ -4,7 +4,7 @@ This document explains the internal architecture, design decisions, and implemen
 
 ## Architecture Overview
 
-ServiceMarketplace follows Clean Architecture with four main code layers and separate UI projects.
+ServiceMarketplace follows a layered/Clean-inspired modular monolith architecture with separate UI projects. Application contracts and DTOs live outside infrastructure, while some business orchestration still intentionally lives in Infrastructure services during the current migration.
 
 ```
 UI Layer (Blazor WASM + MAUI)        ServiceMarketplace.UI.*
@@ -44,6 +44,7 @@ Infrastructure Layer                 ServiceMarketplace.Infrastructure
 PostgreSQL Database
   - Users, Roles, UserRoles
   - ServiceRequests, ServiceCategories, ServiceZones, Bids, ServicePackages, ServiceOrders, ServiceOrderMessages
+  - Conversations, ConversationParticipants, Messages, MessageReports, DeviceRegistrations
   - SellerProfiles, ProductCategories, ProductInspectionPrompts, ProductListings, ProductDeliveryOrders
   - ServiceOrderPayments, PlatformPaymentIntents, ProviderPayouts, ServiceOrderDisputes, ServiceOrderReviews, ServiceOrderAuditEvents
   - UserNotifications
@@ -104,7 +105,12 @@ Core tables:
 | `Bids` | Provider bids linked to service requests |
 | `ServicePackages` | Provider-owned fixed-price packages for bookable service offers |
 | `ServiceOrders` | Bid-backed or fixed-package job lifecycle records for customer/provider work |
-| `ServiceOrderMessages` | Order-scoped messages between accepted customer/provider participants |
+| `ServiceOrderMessages` | Legacy order-scoped messages between accepted customer/provider participants; synchronized into conversations |
+| `Conversations` | Durable inbox threads, currently service-order scoped |
+| `ConversationParticipants` | Per-user participant/read/archive/mute state for conversations |
+| `Messages` | Persisted text and system messages with idempotent client message IDs |
+| `MessageReports` | Participant-submitted chat abuse reports and admin moderation actions |
+| `DeviceRegistrations` | User-owned push device tokens with active/invalid state |
 | `ServiceOrderPayments` | One payment record per service order for offline/direct payment bookkeeping |
 | `ServiceOrderReviews` | One transaction-backed customer review per completed service order |
 | `ServiceOrderAuditEvents` | Append-only transaction history for service order events |
@@ -133,7 +139,10 @@ Important relationships:
 - `ProductListings` has many `ProductDeliveryOrders`.
 - `SellerProfiles` has many `ProductDeliveryOrders` through seller user ID.
 - `ProductDeliveryOrders` optionally references `ServiceZones`.
-- `ServiceOrders` has many `ServiceOrderMessages`.
+- `ServiceOrders` has many `ServiceOrderMessages` for compatibility and at most one durable `Conversation`.
+- `Conversations` has many `ConversationParticipants` and many `Messages`.
+- `Messages` can have participant-created `MessageReports`.
+- `Users` has many `DeviceRegistrations`.
 - `ServiceOrders` has at most one `ServiceOrderPayment`.
 - `ServiceOrders` has many `PlatformPaymentIntents` and `ServiceOrderDisputes`.
 - `ServiceOrderPayments` can reference one verified `PlatformPaymentIntent`.
@@ -166,6 +175,7 @@ Important relationships:
 - Customers can browse active fixed-price packages and book one directly; booking creates an accepted `ServiceRequest` and a `ServiceOrder` without an accepted bid.
 - Package-created orders use the same start, provider-complete, payment, completion, review, notification, and audit workflows as bid-created orders.
 - Registered accounts receive default `product.buyer` capability.
+- Normal registered accounts receive fixed base capabilities for requesting services and buying products. Optional provider/seller capability requests never remove those base capabilities.
 - Seller capability is approval-only and emitted as `product.seller` only when a seller profile is approved.
 - Approved sellers can create/update product listings; unapproved sellers are blocked by policy and service checks.
 - Buyers can browse active product listings with stock by product category, zone, and condition.
@@ -185,8 +195,14 @@ Important relationships:
 - Providers can start an order and mark it provider-completed; customers confirm final completion.
 - Customers or accepted providers can cancel active orders with a reason.
 - Completed or cancelled orders close the original service request.
-- Accepted order participants can send messages only within their own order thread.
-- Message recipients can mark an order thread read.
+- Accepted order participants can send messages only within their own order conversation/thread.
+- Message recipients can mark the conversation or legacy order thread read.
+- Conversation access is participant-authorized; unauthorized users cannot list, open, send, mark read, archive, mute, or report messages for conversations they do not belong to.
+- System messages are generated by server-side services only; clients cannot impersonate lifecycle/system messages.
+- Chat DTOs and realtime payloads avoid phone, email, exact private address, KYC, bank, and payment-sensitive data.
+- Message reports cannot target the reporter's own messages or system messages and are reviewed through Admin-only APIs.
+- SignalR publishes privacy-minimal events after persistence and is never the database of record.
+- Push delivery is optional and privacy-minimal; FCM is enabled only by local/hosted configuration.
 - Persistent notifications are emitted for accepted bids, service order creation/start/provider-completion/final-completion/cancellation, and received order messages.
 - Customers can record one non-platform payment for the agreed amount after provider completion.
 - Platform payment records are rejected until server-side payment verification exists.
@@ -201,14 +217,19 @@ Important relationships:
 - Customer bid comparison UI surfaces provider rating/review count, hourly rate, estimated duration, comparison rank, and bid message.
 - Provider applications follow a persisted lifecycle: Draft, Submitted, Under Review, Approved, More Information Required, Rejected, Suspended, and Revoked.
 - Admin review approval synchronizes legacy KYC fields so existing provider gates continue to work during the transition.
+- Public registration can create a normal account plus submitted provider/seller application data, but commercial provider/seller capabilities remain inactive until admin approval.
+- GSTIN is optional in the current implementation as a platform onboarding choice; no legal claim is made in code or docs.
 
 ## Security Implementation
 
 - JWT access tokens expire after 10 minutes.
 - Refresh tokens expire after 7 days and are rotated on refresh.
 - Passwords are hashed with PBKDF2 before storage.
+- Password hashing is centralized through `IPasswordHasher` and reused by registration, login verification, and admin bootstrap.
 - JWT signing keys must be configured through user secrets or environment variables and must be at least 32 bytes.
 - Public `Admin` registration is blocked at the API and service layers.
+- Admin provisioning is local/operator-controlled through `ServiceMarketplace.AdminTool` and `scripts/bootstrap-admin.ps1`; no public bootstrap endpoint exists.
+- Admin provisioning can create a first admin, grant Admin to an existing user, or explicitly reset an admin password, and records audit events.
 - Marketplace capabilities and administrative permissions are emitted as separate JWT claim types.
 - Provider commercial actions require active, approved provider status, preferring the `ServiceProviderProfiles` approval lifecycle with legacy KYC compatibility.
 - Product seller actions require approved seller profile status and `product.seller` capability.
@@ -225,7 +246,7 @@ Important relationships:
 - Service order audit history is participant-scoped for reads and append-only through service-layer hooks.
 - Rate limits protect auth, refresh, bid, request, and admin endpoints.
 - Security headers are applied through middleware.
-- Audit logging records key auth and session events.
+- Audit logging records key auth/session events and controlled admin provisioning events.
 
 ## Background Jobs
 

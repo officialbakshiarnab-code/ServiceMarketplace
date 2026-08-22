@@ -1,0 +1,15 @@
+<span class="realtime-status @StatusClass" title="Messaging connection status">
+    @Status
+</span>
+
+@code {
+    [Parameter]
+    public string Status { get; set; } = "Offline";
+
+    private string StatusClass => Status switch
+    {
+        "Connected" => "connected",
+        "Reconnecting" => "reconnecting",
+        _ => "offline"
+    };
+}

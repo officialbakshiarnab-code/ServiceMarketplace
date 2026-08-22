@@ -41,6 +41,52 @@ dotnet run --project .\ServiceMarketplace.API
 
 Swagger is available at `https://localhost:7147/swagger` in Development.
 
+## Start API And Web UI
+
+The Web UI calls the API at `https://localhost:7147`. If the API is not running, browser login shows `Failed to fetch` or `ERR_CONNECTION_REFUSED`.
+
+Start both apps and verify the API health endpoint:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-dev.ps1
+```
+
+Apply migrations first, then start both apps:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-dev.ps1 -ApplyMigrations
+```
+
+Start only the API:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-dev.ps1 -ApiOnly
+```
+
+If you are using Visual Studio to run the Web UI, keep `7241` free and start only the API from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-dev.ps1 -ApiOnly
+```
+
+If Visual Studio reports `address already in use` for `7241`, stop the background Web UI process:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-local-dev.ps1 -WebOnly
+```
+
+Local URLs:
+
+- API health: `https://localhost:7147/health/ready`
+- API Swagger: `https://localhost:7147/swagger`
+- Web UI: `https://localhost:7241`
+
+If HTTPS certificates are not trusted on a new machine:
+
+```powershell
+dotnet dev-certs https --trust
+```
+
 ## Git Safety
 
 Do not commit real connection strings, JWT signing keys, `.env` files, Visual Studio user files, logs, local reports, or generated local database artifacts. The setup script writes runtime values outside the repository.
@@ -49,5 +95,7 @@ Do not commit real connection strings, JWT signing keys, `.env` files, Visual St
 
 - `JWT signing key is a placeholder`: run `scripts/setup-local-dev.ps1`, then restart Visual Studio or the terminal.
 - `Connection string 'DefaultConnection' not found`: run `scripts/setup-local-dev.ps1` with the PostgreSQL credentials for your machine.
+- Browser login says `Network error during login: TypeError: Failed to fetch`: start the API on `https://localhost:7147` with `scripts/start-local-dev.ps1`.
+- Visual Studio says `Failed to bind to address https://127.0.0.1:7241`: another Web UI process is already running; stop it with `scripts/stop-local-dev.ps1 -WebOnly`.
 - PostgreSQL authentication failure: rerun the setup script with the password used by your local database or recreate the local container with `-StartPostgresContainer`.
 - Migration failure: verify PostgreSQL is running, then rerun with `-ApplyMigrations`.

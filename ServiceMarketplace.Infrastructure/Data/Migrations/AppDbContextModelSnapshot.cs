@@ -195,6 +195,317 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.ToTable("ContactRequests", (string)null);
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<short>("ContextType")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastMessageAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LastMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LegalHoldUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RetainUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RetentionNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("ServiceOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)1);
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceOrderId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Conversations_ServiceOrderId")
+                        .HasFilter("\"ServiceOrderId\" IS NOT NULL");
+
+                    b.HasIndex("ContextType", "LastMessageAt")
+                        .HasDatabaseName("IX_Conversations_ContextLastMessage");
+
+                    b.HasIndex("Status", "RetainUntil")
+                        .HasDatabaseName("IX_Conversations_StatusRetainUntil");
+
+                    b.ToTable("Conversations", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ConversationParticipant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsArchived")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsMuted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LastReadMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LeftAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<short>("ParticipantKind")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ConversationParticipants_ConversationUser");
+
+                    b.HasIndex("UserId", "IsArchived", "ConversationId")
+                        .HasDatabaseName("IX_ConversationParticipants_UserArchivedConversation");
+
+                    b.ToTable("ConversationParticipants", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.DeviceRegistration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("DeviceToken")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<short>("Platform")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "IsActive", "LastSeenAt")
+                        .HasDatabaseName("IX_DeviceRegistrations_UserActiveSeen");
+
+                    b.HasIndex("UserId", "Platform", "DeviceToken")
+                        .IsUnique()
+                        .HasDatabaseName("UX_DeviceRegistrations_UserPlatformToken");
+
+                    b.ToTable("DeviceRegistrations", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Message", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("ClientMessageId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HiddenByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("HiddenReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool>("IsHidden")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("SenderUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<short>("Type")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "ClientMessageId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Messages_ConversationClientMessage")
+                        .HasFilter("\"ClientMessageId\" IS NOT NULL");
+
+                    b.HasIndex("ConversationId", "CreatedAt", "Id")
+                        .HasDatabaseName("IX_Messages_ConversationCreatedId");
+
+                    b.ToTable("Messages", (string)null);
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.MessageReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ConversationRestricted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Details")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("LegalHoldUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("MessageHidden")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("ReportedSenderUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("ReporterUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("ReviewNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<short>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)1);
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "MessageId")
+                        .HasDatabaseName("IX_MessageReports_ConversationMessage");
+
+                    b.HasIndex("MessageId", "ReporterUserId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_MessageReports_MessageReporter");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("IX_MessageReports_StatusCreated");
+
+                    b.ToTable("MessageReports", (string)null);
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.PlatformPaymentIntent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1978,6 +2289,57 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.Navigation("ServiceRequest");
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Conversation", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
+                        .WithOne("Conversation")
+                        .HasForeignKey("ServiceMarketplace.Domain.Entities.Conversation", "ServiceOrderId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("ServiceOrder");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ConversationParticipant", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.Conversation", "Conversation")
+                        .WithMany("Participants")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Message", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.Conversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.MessageReport", b =>
+                {
+                    b.HasOne("ServiceMarketplace.Domain.Entities.Conversation", "Conversation")
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServiceMarketplace.Domain.Entities.Message", "Message")
+                        .WithMany()
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("Message");
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.PlatformPaymentIntent", b =>
                 {
                     b.HasOne("ServiceMarketplace.Domain.Entities.ServiceOrder", "ServiceOrder")
@@ -2269,6 +2631,13 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
                     b.Navigation("ServiceOrder");
                 });
 
+            modelBuilder.Entity("ServiceMarketplace.Domain.Entities.Conversation", b =>
+                {
+                    b.Navigation("Messages");
+
+                    b.Navigation("Participants");
+                });
+
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ProductCategory", b =>
                 {
                     b.Navigation("InspectionPrompts");
@@ -2303,6 +2672,8 @@ namespace ServiceMarketplace.Infrastructure.Data.Migrations
             modelBuilder.Entity("ServiceMarketplace.Domain.Entities.ServiceOrder", b =>
                 {
                     b.Navigation("AuditEvents");
+
+                    b.Navigation("Conversation");
 
                     b.Navigation("Disputes");
 
