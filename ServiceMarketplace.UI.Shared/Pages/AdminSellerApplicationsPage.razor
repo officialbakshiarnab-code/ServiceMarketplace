@@ -5,7 +5,7 @@
 @using ServiceMarketplace.UI.Shared.Requests
 @inject SellerApplicationsApiClient SellerApplicationsClient
 @inject NavigationManager Nav
-@inject AuthState AuthState
+@inject AdminAccessGuard AdminAccessGuard
 
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -70,11 +70,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!await AuthState.IsAuthenticatedAsync() || !await AuthState.HasRoleAsync(RoleNames.Admin))
-        {
-            Nav.NavigateTo("/login", forceLoad: false);
+        if (!await AdminAccessGuard.EnsureAdminPageAccessAsync())
             return;
-        }
 
         await LoadAsync();
     }

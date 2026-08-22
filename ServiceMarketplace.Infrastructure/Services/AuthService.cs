@@ -13,7 +13,6 @@ using ServiceMarketplace.Infrastructure.Data;
 using ServiceMarketplace.Infrastructure.Data.Extensions;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace ServiceMarketplace.Infrastructure.Services;
@@ -23,12 +22,10 @@ public sealed class AuthService(
     IAuditLogService auditLogService,
     ITokenRefreshService tokenRefreshService,
     IFileUploadService fileUploadService,
+    IPasswordHasher passwordHasher,
     AppDbContext dbContext,
     ILogger<AuthService> logger) : IAuthService
 {
-    private const int PasswordHashIterations = 100_000;
-    private const int SaltLength = 16;
-    private const int HashLength = 32;
     private const int AccessTokenLifetimeMinutes = 10;
 
     public async Task<AuthRegisterResult> RegisterAsync(
@@ -76,7 +73,7 @@ public sealed class AuthService(
                 FirstName = firstName.Trim(),
                 LastName = lastName.Trim(),
                 DateOfBirth = DateTime.SpecifyKind(dateOfBirth.Date, DateTimeKind.Utc),
-                PasswordHash = HashPassword(password),
+                PasswordHash = passwordHasher.HashPassword(password),
                 PhoneNumber = null,
                 NormalizedPhoneNumber = null,
                 SecondaryPhoneNumber = null,
@@ -140,7 +137,7 @@ public sealed class AuthService(
         if (user.LockoutEndUtc.HasValue && user.LockoutEndUtc.Value > DateTime.UtcNow)
             return new AuthLoginResult(false, null, "Account is locked. Try again later.");
 
-        if (!VerifyPassword(password, user.PasswordHash))
+        if (!passwordHasher.VerifyPassword(password, user.PasswordHash))
         {
             user.AccessFailedCount++;
             if (user.AccessFailedCount >= 5)
@@ -374,34 +371,4 @@ public sealed class AuthService(
         return new string(phone.Where(char.IsDigit).ToArray());
     }
 
-    private static string HashPassword(string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(SaltLength);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(
-            password,
-            salt,
-            PasswordHashIterations,
-            HashAlgorithmName.SHA256,
-            HashLength);
-
-        return $"v1${PasswordHashIterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
-    }
-
-    private static bool VerifyPassword(string password, string storedHash)
-    {
-        var parts = storedHash.Split('$');
-        if (parts.Length != 4 || parts[0] != "v1" || !int.TryParse(parts[1], out var iterations))
-            return false;
-
-        var salt = Convert.FromBase64String(parts[2]);
-        var expectedHash = Convert.FromBase64String(parts[3]);
-        var actualHash = Rfc2898DeriveBytes.Pbkdf2(
-            password,
-            salt,
-            iterations,
-            HashAlgorithmName.SHA256,
-            expectedHash.Length);
-
-        return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
-    }
 }

@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ServiceMarketplace.UI.Share
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ServiceMarketplace.API.Tests", "ServiceMarketplace.API.Tests\ServiceMarketplace.API.Tests.csproj", "{255A2347-0E7F-443F-B596-80C838242A85}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ServiceMarketplace.AdminTool", "ServiceMarketplace.AdminTool\ServiceMarketplace.AdminTool.csproj", "{7563FBEB-BC43-4708-8125-5AA588E0B391}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -139,6 +141,18 @@ Global
 		{255A2347-0E7F-443F-B596-80C838242A85}.Release|x64.Build.0 = Release|Any CPU
 		{255A2347-0E7F-443F-B596-80C838242A85}.Release|x86.ActiveCfg = Release|Any CPU
 		{255A2347-0E7F-443F-B596-80C838242A85}.Release|x86.Build.0 = Release|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Debug|x64.Build.0 = Debug|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Debug|x86.Build.0 = Debug|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Release|x64.ActiveCfg = Release|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Release|x64.Build.0 = Release|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Release|x86.ActiveCfg = Release|Any CPU
+		{7563FBEB-BC43-4708-8125-5AA588E0B391}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

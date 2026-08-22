@@ -4,7 +4,7 @@
 @using ServiceMarketplace.UI.Shared.Auth
 @inject AdminKpiApiClient KpiClient
 @inject NavigationManager Nav
-@inject AuthState AuthState
+@inject AdminAccessGuard AdminAccessGuard
 
 <PageTitle>Admin Dashboard</PageTitle>
 
@@ -265,21 +265,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Check if user is authenticated and is Admin
-        var isAuthenticated = await AuthState.IsAuthenticatedAsync();
-        var role = await AuthState.GetRoleAsync();
-
-        if (!isAuthenticated)
-        {
-            Nav.NavigateTo("/login", forceLoad: false);
+        if (!await AdminAccessGuard.EnsureAdminPageAccessAsync())
             return;
-        }
-
-        if (!string.Equals(role, RoleNames.Admin, StringComparison.Ordinal))
-        {
-            Nav.NavigateTo("/", forceLoad: false);
-            return;
-        }
 
         await LoadKpisAsync();
     }

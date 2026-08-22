@@ -47,6 +47,8 @@ public interface IAuditLogService
     /// <returns>True if event was logged, false if duplicate was detected</returns>
     Task<bool> LogSessionExpiredAsync(string userId, string? role, string? sessionId, string? ipAddress, string? userAgent);
 
+    Task LogAdminProvisioningAsync(string userId, string eventType);
+
     /// <summary>
     /// Queries audit logs with filtering and pagination (Admin-only).
     /// </summary>

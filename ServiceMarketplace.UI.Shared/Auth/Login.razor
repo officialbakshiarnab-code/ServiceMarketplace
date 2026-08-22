@@ -1,17 +1,25 @@
-﻿@page "/login"
+@page "/login"
+@page "/admin"
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.Extensions.Logging
 @using ServiceMarketplace.UI.Shared.Auth
 @inject AuthApiClient AuthApi
 @inject TokenAuthenticationStateProvider AuthStateProvider
 @inject AuthRedirector Redirector
+@inject AdminAccessGuard AdminAccessGuard
 @inject NavigationManager Nav
 @inject ILogger<Login> Logger
 
-<PageTitle>Login</PageTitle>
+<PageTitle>@(IsAdminLogin ? "Admin Login" : "Login")</PageTitle>
 
 <div class="container py-4" style="max-width: 520px;">
-    <h3 class="mb-3">Login</h3>
+    <div class="mb-3">
+        <h3 class="mb-1">@(IsAdminLogin ? "Admin Login" : "Login")</h3>
+        @if (IsAdminLogin)
+        {
+            <p class="text-muted mb-0">Administrator access for review queues, audit logs, moderation, and platform operations.</p>
+        }
+    </div>
 
     @if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -47,9 +55,12 @@
                 <span>Login</span>
             }
         </button>
-        <button type="button" class="btn btn-link w-100" @onclick="GoToRegister" disabled="@_busy">
-            Don't have an account? Register here
-        </button>
+        @if (!IsAdminLogin)
+        {
+            <button type="button" class="btn btn-link w-100" @onclick="GoToRegister" disabled="@_busy">
+                Don't have an account? Register here
+            </button>
+        }
     </EditForm>
 </div>
 
@@ -58,33 +69,24 @@
     private readonly SubmissionGuard _submissionGuard = new();
     private bool _busy;
     private string? _error;
+    private bool IsAdminLogin => IsRoute("admin");
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsAdminLogin)
+            await AdminAccessGuard.EnsureAdminLoginAccessAsync();
+    }
 
     /// <summary>
     /// Handles user login with graceful error handling:
     /// 1. Check SubmissionGuard - ensure this is not a duplicate request
     /// 2. Create LoginRequest DTO matching API contract (Email, Password)
     /// 3. Call AuthApiClient.LoginAsync (sends POST /api/auth/login)
-    /// 4. On success: JWT stored by AuthApiClient → notify auth provider → redirect by role
+    /// 4. On success: JWT stored by AuthApiClient, notify auth provider, redirect by role
     /// 5. On failure: displays user-friendly error message (never throws)
-    /// 
-    /// GRACEFUL ERROR HANDLING:
-    /// - AuthApiClient never throws exceptions
-    /// - Returns LoginResult with success flag and optional error message
-    /// - UI displays errors without crashing
-    /// 
-    /// DUPLICATE PREVENTION:
-    /// - SubmissionGuard tracks login attempts within 30 seconds
-    /// - If user clicks login button twice quickly, second click is rejected
-    /// - No duplicate API calls reach server
-    /// 
-    /// REDIRECT GUARANTEE:
-    /// - Auth state is updated before redirect is called
-    /// - Redirect respects user's complete role set (including "Both" scenarios)
-    /// - If user has both User and Provider roles, Provider dashboard is prioritized
     /// </summary>
     private async Task HandleLoginAsync()
     {
-        // GUARD: Check if this submission is allowed (prevents duplicate submissions)
         if (!await _submissionGuard.IsAllowedAsync("login"))
         {
             Logger.LogWarning("[Login] Duplicate submission attempt blocked");
@@ -96,7 +98,6 @@
 
         try
         {
-            // Create request DTO with exact property names/types API expects
             var request = new LoginRequest
             {
                 Email = _model.Email,
@@ -105,37 +106,28 @@
 
             Logger.LogInformation("[Login] Sending login request for: {Email}", request.Email);
 
-            // Call AuthApiClient - returns result object (never throws)
             var result = await AuthApi.LoginAsync(request);
 
             if (!result.Success)
             {
-                // Login failed - display user-friendly error message
                 _error = result.Error ?? "Login failed. Please try again.";
                 Logger.LogWarning("[Login] Login failed: {Error}", _error);
-                
-                // Reset submission guard on error so user can retry
                 await _submissionGuard.ResetAsync("login");
                 return;
             }
 
             Logger.LogInformation("[Login] Login successful, JWT stored in browser storage");
-
-            // Notify Blazor framework to re-read JWT from storage and update auth state
-            // This is critical: the redirect MUST happen after this notification
             AuthStateProvider.NotifyAuthenticationStateChanged();
             Logger.LogInformation("[Login] Auth state notification sent to Blazor");
 
-            // Small delay to ensure auth state has been propagated through the component tree
-            // This guarantees that Redirector.RedirectToDashboardAsync() will read the updated auth state
             await Task.Delay(50);
 
-            // Reads all role claims from JWT and navigates to appropriate dashboard
-            // Logic:
-            // - If user has BOTH User and ServiceProvider roles → /provider/dashboard (default to Provider)
-            // - If user has ServiceProvider role only → /provider/dashboard
-            // - If user has User role only → /user/dashboard
-            // - If user has no roles → /user/dashboard (safe default)
+            if (IsAdminLogin)
+            {
+                await AdminAccessGuard.EnsureAdminLoginAccessAsync();
+                return;
+            }
+
             await Redirector.RedirectToDashboardAsync();
         }
         finally
@@ -146,10 +138,12 @@
 
     private void GoToRegister() => Nav.NavigateTo("/register");
 
-    /// <summary>
-    /// View model for login form with client-side validation.
-    /// Separate from LoginRequest DTO to avoid coupling UI validation to API contract.
-    /// </summary>
+    private bool IsRoute(string route)
+    {
+        var relativePath = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
+        return relativePath.Equals(route, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class LoginModel
     {
         [Required(ErrorMessage = "Email is required")]
@@ -161,4 +155,3 @@
         public string Password { get; set; } = string.Empty;
     }
 }
-

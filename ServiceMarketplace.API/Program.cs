@@ -372,6 +372,8 @@ builder.Services.AddScoped<INotificationService, MarketplaceNotificationService>
 builder.Services.AddScoped<INotificationInboxService, MarketplaceNotificationService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
+builder.Services.AddScoped<IAdminProvisioningService, AdminProvisioningService>();
 builder.Services.AddScoped<ITokenRefreshService, TokenRefreshService>();
 builder.Services.AddScoped<IAdminKpiService, AdminKpiService>();
 builder.Services.AddScoped<ICleanupService, CleanupService>();

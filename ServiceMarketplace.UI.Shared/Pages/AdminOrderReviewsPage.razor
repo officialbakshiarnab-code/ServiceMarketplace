@@ -4,7 +4,7 @@
 @using ServiceMarketplace.UI.Shared.Requests
 @inject ServiceOrderReviewsApiClient ReviewsClient
 @inject NavigationManager Nav
-@inject AuthState AuthState
+@inject AdminAccessGuard AdminAccessGuard
 
 <PageTitle>Order Reviews - Admin</PageTitle>
 
@@ -88,12 +88,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!await AuthState.IsAuthenticatedAsync() ||
-            !await AuthState.HasRoleAsync(RoleNames.Admin))
-        {
-            Nav.NavigateTo("/login", forceLoad: false);
+        if (!await AdminAccessGuard.EnsureAdminPageAccessAsync())
             return;
-        }
 
         await LoadAsync();
     }

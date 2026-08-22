@@ -87,6 +87,7 @@ public static class MauiProgram
             sp.GetRequiredService<TokenAuthenticationStateProvider>());
         builder.Services.AddScoped<AuthRedirector>();
         builder.Services.AddScoped<AuthState>();
+        builder.Services.AddScoped<AdminAccessGuard>();
 
         // Configure auth state initialization
         builder.Services.AddScoped<AuthenticationStateInitializer>();

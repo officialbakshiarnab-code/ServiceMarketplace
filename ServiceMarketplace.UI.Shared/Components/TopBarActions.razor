@@ -53,16 +53,24 @@
             Logger.LogInformation("[TopBarActions] Starting logout sequence");
             await LogoutService.LogoutAsync();
             Logger.LogInformation("[TopBarActions] Logout sequence completed, redirecting to login");
-            Nav.NavigateTo("/login", forceLoad: true);
+            Nav.NavigateTo(GetLogoutTarget(), forceLoad: true);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[TopBarActions] Error during logout: {Error}", ex.Message);
-            Nav.NavigateTo("/login", forceLoad: true);
+            Nav.NavigateTo(GetLogoutTarget(), forceLoad: true);
         }
         finally
         {
             _isBusy = false;
         }
+    }
+
+    private string GetLogoutTarget()
+    {
+        var relativePath = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
+        return relativePath.StartsWith("admin", StringComparison.OrdinalIgnoreCase)
+            ? "/admin"
+            : "/login";
     }
 }

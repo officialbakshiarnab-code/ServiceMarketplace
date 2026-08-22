@@ -62,6 +62,15 @@ public sealed class AuditLogService(AppDbContext context, ILogger<AuditLogServic
         return true;
     }
 
+    public async Task LogAdminProvisioningAsync(string userId, string eventType)
+    {
+        if (eventType is not ("AdminProvisioned" or "AdminRoleGranted" or "AdminPasswordReset"))
+            throw new ArgumentException("Unsupported admin provisioning event type.", nameof(eventType));
+
+        await RecordEventAsync(userId, "Admin", eventType, null, null, null);
+        logger.LogInformation("Admin provisioning event {EventType} recorded for user {UserId}", eventType, userId);
+    }
+
     public async Task<AuditLogQueryResponse> QueryAuditLogsAsync(AuditLogQueryRequest request)
     {
         // Start with base query

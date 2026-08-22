@@ -68,6 +68,7 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
     sp.GetRequiredService<TokenAuthenticationStateProvider>());
 builder.Services.AddScoped<AuthRedirector>();
 builder.Services.AddScoped<AuthState>();
+builder.Services.AddScoped<AdminAccessGuard>();
 
 // Configure new auth state management services
 builder.Services.AddScoped<AuthenticationStateInitializer>();

@@ -1,7 +1,9 @@
 @page "/admin/contact-requests"
 @using ServiceMarketplace.Application.DTOs
 @using ServiceMarketplace.Domain.Enums
+@using ServiceMarketplace.UI.Shared.Auth
 @inject ContactRequestsApiClient ContactClient
+@inject AdminAccessGuard AdminAccessGuard
 
 <PageTitle>Admin Contact Requests</PageTitle>
 
@@ -63,6 +65,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!await AdminAccessGuard.EnsureAdminPageAccessAsync())
+            return;
+
         await LoadAsync();
     }
 
