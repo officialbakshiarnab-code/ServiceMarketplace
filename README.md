@@ -166,7 +166,8 @@ Use `DATABASE_SETUP.md` for local PostgreSQL setup and `full_migrations.sql` for
 - Product categories return inspection prompts so buyers know what to verify before pickup.
 - Buyers can create product delivery orders from active listings; sellers confirm, ready, dispatch, deliver, or cancel orders.
 - Product order creation reserves listing stock, and participant cancellation restores reserved stock before delivery starts.
-- Customers can start a platform payment intent after provider completion; only admin/server-side verification creates a held platform payment.
+- Customers can start a platform payment intent after provider completion; administrator confirmation of an external payment reference creates the internal Held payment record. This is not an external payment-gateway verification call.
+- Held, Released, and Refunded describe internal workflow/accounting states. They do not establish bank escrow/custody or execute transfers or refunds.
 - Released platform payments create pending provider payout records with platform fee and provider payout amounts.
 - Participants can open disputes while payment is held; admins can refund the customer, release the provider, or reject the dispute.
 - Users can search services and products from one marketplace surface with keyword, type, zone, category, condition, price, and sort filters.

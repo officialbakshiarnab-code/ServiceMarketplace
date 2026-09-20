@@ -103,75 +103,78 @@ public sealed class ServicePackageService(
 
     public async Task<ServiceOrderDto> BookAsync(Guid packageId, string customerId, BookServicePackageDto dto)
     {
-        if (string.IsNullOrWhiteSpace(customerId))
-            throw new UnauthorizedAccessException("Authentication is required.");
-
-        var package = await BaseQuery()
-            .FirstOrDefaultAsync(p => p.Id == packageId && p.IsActive && p.ServiceCategory.IsActive)
-            ?? throw new NotFoundException("Service package not found.");
-
-        if (package.ProviderId == customerId)
-            throw new ForbiddenException("You cannot book your own service package.");
-
-        var scheduledUtc = NormalizeToUtc(dto.ScheduledStartAt);
-        if (scheduledUtc <= DateTime.UtcNow.AddMinutes(-1))
-            throw new BadRequestException("Scheduled start time must be in the future.");
-
-        var location = NormalizeRequired(dto.Location, 500, "Location");
-        var requirements = NormalizeOptional(dto.Requirements, 2000);
-
-        var request = new ServiceRequest
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            CustomerId = customerId,
-            Title = package.Title,
-            Description = package.Description,
-            Category = package.ServiceCategory.Name,
-            ServiceCategoryId = package.ServiceCategoryId,
-            Location = location,
-            ServiceZoneId = package.ServiceZoneId,
-            Latitude = dto.Latitude,
-            Longitude = dto.Longitude,
-            Urgency = ServiceRequestUrgency.Flexible,
-            PreferredStartAt = scheduledUtc,
-            Requirements = requirements,
-            Status = ServiceRequestStatus.Accepted,
-            CreatedAt = DateTime.UtcNow
-        };
+            if (string.IsNullOrWhiteSpace(customerId))
+                throw new UnauthorizedAccessException("Authentication is required.");
 
-        var order = new ServiceOrder
-        {
-            ServiceRequest = request,
-            AcceptedBidId = null,
-            ServicePackageId = package.Id,
-            CustomerId = customerId,
-            ProviderId = package.ProviderId,
-            AgreedAmount = package.Price,
-            ScheduledStartAt = scheduledUtc,
-            EstimatedDurationMinutes = package.EstimatedDurationMinutes,
-            Status = ServiceOrderStatus.PendingStart,
-            CreatedAt = DateTime.UtcNow
-        };
+            var package = await BaseQuery()
+                .FirstOrDefaultAsync(p => p.Id == packageId && p.IsActive && p.ServiceCategory.IsActive)
+                ?? throw new NotFoundException("Service package not found.");
 
-        context.ServiceRequests.Add(request);
-        context.ServiceOrders.Add(order);
-        await context.SaveChangesAsync();
+            if (package.ProviderId == customerId)
+                throw new ForbiddenException("You cannot book your own service package.");
 
-        await auditService.RecordAsync(
-            order,
-            customerId,
-            "Customer",
-            "ServiceOrderCreatedFromPackage",
-            null,
-            order.Status.ToString(),
-            $"Booked package {package.Id}.");
-        await conversationService.EnsureServiceOrderConversationAsync(
-            order.Id,
-            "Order confirmed from a fixed-price service package. You can now use this secure service-order chat.",
-            $"service-order:{order.Id:N}:created-from-package");
+            var scheduledUtc = NormalizeToUtc(dto.ScheduledStartAt);
+            if (scheduledUtc <= DateTime.UtcNow.AddMinutes(-1))
+                throw new BadRequestException("Scheduled start time must be in the future.");
 
-        await notificationService.NotifyServiceOrderCreatedAsync(order.Id);
+            var location = NormalizeRequired(dto.Location, 500, "Location");
+            var requirements = NormalizeOptional(dto.Requirements, 2000);
 
-        return await orderService.GetByIdAsync(order.Id, customerId);
+            var request = new ServiceRequest
+            {
+                CustomerId = customerId,
+                Title = package.Title,
+                Description = package.Description,
+                Category = package.ServiceCategory.Name,
+                ServiceCategoryId = package.ServiceCategoryId,
+                Location = location,
+                ServiceZoneId = package.ServiceZoneId,
+                Latitude = dto.Latitude,
+                Longitude = dto.Longitude,
+                Urgency = ServiceRequestUrgency.Flexible,
+                PreferredStartAt = scheduledUtc,
+                Requirements = requirements,
+                Status = ServiceRequestStatus.Accepted,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            var order = new ServiceOrder
+            {
+                ServiceRequest = request,
+                AcceptedBidId = null,
+                ServicePackageId = package.Id,
+                CustomerId = customerId,
+                ProviderId = package.ProviderId,
+                AgreedAmount = package.Price,
+                ScheduledStartAt = scheduledUtc,
+                EstimatedDurationMinutes = package.EstimatedDurationMinutes,
+                Status = ServiceOrderStatus.PendingStart,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            context.ServiceRequests.Add(request);
+            context.ServiceOrders.Add(order);
+            await context.SaveChangesAsync();
+
+            await auditService.RecordAsync(
+                order,
+                customerId,
+                "Customer",
+                "ServiceOrderCreatedFromPackage",
+                null,
+                order.Status.ToString(),
+                $"Booked package {package.Id}.");
+            await conversationService.EnsureServiceOrderConversationAsync(
+                order.Id,
+                "Order confirmed from a fixed-price service package. You can now use this secure service-order chat.",
+                $"service-order:{order.Id:N}:created-from-package");
+
+            await notificationService.NotifyServiceOrderCreatedAsync(order.Id);
+
+            return await orderService.GetByIdAsync(order.Id, customerId);
+        });
     }
 
     private IQueryable<ServicePackage> BaseQuery()

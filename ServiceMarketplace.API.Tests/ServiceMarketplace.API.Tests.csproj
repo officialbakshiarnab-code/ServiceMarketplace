@@ -26,6 +26,7 @@
     <ProjectReference Include="..\ServiceMarketplace.Application\ServiceMarketplace.Application.csproj" />
     <ProjectReference Include="..\ServiceMarketplace.Infrastructure\ServiceMarketplace.Infrastructure.csproj" />
     <ProjectReference Include="..\ServiceMarketplace.Domain\ServiceMarketplace.Domain.csproj" />
+    <ProjectReference Include="..\ServiceMarketplace.UI.Shared\ServiceMarketplace.UI.Shared.csproj" />
   </ItemGroup>
 
 </Project>

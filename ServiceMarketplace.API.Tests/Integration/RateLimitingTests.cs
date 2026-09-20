@@ -1,194 +1,146 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
-using FluentAssertions;
-using ServiceMarketplace.API.Tests.Builders;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
+using ServiceMarketplace.API.Configuration;
 using ServiceMarketplace.API.Tests.Fixtures;
+using ServiceMarketplace.Application.Constants;
 using Xunit;
 
 namespace ServiceMarketplace.API.Tests.Integration;
 
-/// <summary>
-/// Integration tests for rate limiting.
-/// Verifies that rate limits are enforced on authentication endpoints.
-/// </summary>
-public class RateLimitingTests : IClassFixture<ServiceMarketplaceWebApplicationFactory>
+// Each test owns its host/limiter state; the ordinary fixture still disables limits.
+public sealed class RateLimitingTests
 {
-    private readonly ServiceMarketplaceWebApplicationFactory _factory;
-    private readonly HttpClient _client;
-
-    public RateLimitingTests(ServiceMarketplaceWebApplicationFactory factory)
+    private sealed class RateLimitedFactory : ServiceMarketplaceWebApplicationFactory
     {
-        _factory = factory;
-        _client = factory.CreateClient();
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Testing:EnableRateLimiting"] = "true" }));
+        }
     }
 
-    [Fact(Skip = "Rate limiting is disabled in the shared Testing host; validate with an environment-specific rate-limit test host.")]
+    [Fact]
     public async Task RegisterEndpoint_EnforcesRateLimit_Auth_5PerMinute()
     {
-        // Arrange - Try to register more than 5 times in a minute
-        var requests = Enumerable.Range(0, 7)
-            .Select(i => AuthRequestBuilder.CreateUser($"user{i}@test.com").BuildRegisterRequest())
-            .ToList();
-
-        var responses = new List<HttpStatusCode>();
-
-        // Act
-        foreach (var request in requests)
+        using var factory = new RateLimitedFactory();
+        using var client = factory.CreateClient();
+        for (var i = 0; i < 5; i++)
         {
-            var response = await _client.PostAsJsonAsync("/api/auth/register", request);
-            responses.Add(response.StatusCode);
-            
-            // Small delay between requests
-            await Task.Delay(50);
+            using var response = await client.PostAsJsonAsync("/api/auth/register", new { });
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
-
-        // Assert - First 5 should succeed, rest should be rate limited
-        var successCount = responses.Count(r => r == HttpStatusCode.OK || r == HttpStatusCode.BadRequest);
-        var rateLimitedCount = responses.Count(r => r == HttpStatusCode.TooManyRequests);
-
-        successCount.Should().BeGreaterThanOrEqualTo(5);
-        rateLimitedCount.Should().BeGreaterThan(0);
+        using var limited = await client.PostAsJsonAsync("/api/auth/register", new { });
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
     }
 
-    [Fact(Skip = "Rate limiting is disabled in the shared Testing host; validate with an environment-specific rate-limit test host.")]
+    [Fact]
     public async Task LoginEndpoint_EnforcesRateLimit_Auth_5PerMinute()
     {
-        // Arrange - Register one user
-        var email = "loginlimit@test.com";
-        var registerReq = AuthRequestBuilder.CreateUser(email).BuildRegisterRequest();
-        await _client.PostAsJsonAsync("/api/auth/register", registerReq);
-
-        // Act - Try to login more than 5 times rapidly
-        var loginReq = new ServiceMarketplace.API.Models.Auth.LoginRequest
+        using var factory = new RateLimitedFactory();
+        using var client = factory.CreateClient();
+        // No registration consumes this host's shared auth budget.
+        for (var i = 0; i < 5; i++)
         {
-            Email = email,
-            Password = "Test@123456"
-        };
-
-        var responses = new List<HttpStatusCode>();
-        for (int i = 0; i < 7; i++)
-        {
-            var response = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
-            responses.Add(response.StatusCode);
-            await Task.Delay(50);
+            using var response = await client.PostAsJsonAsync("/api/auth/login", new { Email = "missing@test.invalid", Password = "test" });
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, response.StatusCode);
         }
-
-        // Assert
-        var successCount = responses.Count(r => r == HttpStatusCode.OK);
-        var rateLimitedCount = responses.Count(r => r == HttpStatusCode.TooManyRequests);
-
-        successCount.Should().BeGreaterThanOrEqualTo(5);
-        rateLimitedCount.Should().BeGreaterThan(0);
+        using var limited = await client.PostAsJsonAsync("/api/auth/login", new { });
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
     }
 
     [Fact]
     public async Task RefreshEndpoint_EnforcesRateLimit_Refresh_10PerMinute()
     {
-        // Arrange - Get valid refresh token
-        var registerReq = AuthRequestBuilder.CreateUser("refresh@test.com").BuildRegisterRequest();
-        await _client.PostAsJsonAsync("/api/auth/register", registerReq);
-
-        var loginReq = new ServiceMarketplace.API.Models.Auth.LoginRequest
+        using var factory = new RateLimitedFactory();
+        using var client = factory.CreateClient();
+        for (var i = 0; i < 10; i++)
         {
-            Email = "refresh@test.com",
-            Password = "Test@123456"
-        };
-
-        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
-        var json = await loginResponse.Content.ReadAsStringAsync();
-        var refreshToken = System.Text.Json.JsonDocument.Parse(json)
-            .RootElement.GetProperty("refreshToken").GetString();
-
-        var request = new { refreshToken = refreshToken };
-
-        // Act - Try to refresh more than 10 times rapidly
-        var responses = new List<HttpStatusCode>();
-        for (int i = 0; i < 12; i++)
-        {
-            var response = await _client.PostAsJsonAsync("/api/auth/refresh", request);
-            responses.Add(response.StatusCode);
-            await Task.Delay(50);
+            using var response = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = "invalid" });
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
-
-        // Assert - At least some should be rate limited
-        var successCount = responses.Count(r => r == HttpStatusCode.OK);
-        var rateLimitedCount = responses.Count(r => r == HttpStatusCode.TooManyRequests);
-
-        // May not hit limit due to in-memory database performance
-        // But endpoint should be configured
-        rateLimitedCount.Should().BeGreaterThanOrEqualTo(0);
+        using var limited = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = "invalid" });
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
     }
 
     [Fact]
     public async Task RateLimitResponse_IncludesRetryAfterHeader()
     {
-        // Arrange - Trigger rate limit
-        var requests = Enumerable.Range(0, 8)
-            .Select(i => AuthRequestBuilder.CreateUser($"retry{i}@test.com").BuildRegisterRequest())
-            .ToList();
+        using var factory = new RateLimitedFactory();
+        using var client = factory.CreateClient();
+        for (var i = 0; i < 5; i++)
+            (await client.PostAsJsonAsync("/api/auth/login", new { })).Dispose();
+        using var limited = await client.PostAsJsonAsync("/api/auth/login", new { });
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.True(limited.Headers.RetryAfter?.Delta > TimeSpan.Zero);
+        var body = await limited.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Equal("rate_limit_exceeded", body.GetProperty("error").GetString());
+        Assert.True(body.GetProperty("retryAfter").GetInt32() > 0);
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("traceId").GetString()));
+    }
 
-        // Act
-        HttpResponseMessage? rateLimitedResponse = null;
-        foreach (var request in requests)
+    [Fact]
+    public async Task AuthenticatedUsersBehindSameIp_HaveIndependentPartitions()
+    {
+        using var factory = new RateLimitedFactory();
+        using var first = factory.CreateClient();
+        using var second = factory.CreateClient();
+        first.DefaultRequestHeaders.Authorization = new("Bearer", Token("customer-a"));
+        second.DefaultRequestHeaders.Authorization = new("Bearer", Token("customer-b"));
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(HttpStatusCode.BadRequest, (await first.PostAsJsonAsync("/api/requests", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await first.PostAsJsonAsync("/api/requests", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await second.PostAsJsonAsync("/api/requests", new { })).StatusCode);
+    }
+
+    [Fact]
+    public async Task InvalidJwtAndSpoofedHeaders_CannotEscapeAnonymousPartition()
+    {
+        using var factory = new RateLimitedFactory();
+        using var client = factory.CreateClient();
+        for (var i = 0; i < 6; i++)
         {
-            var response = await _client.PostAsJsonAsync("/api/auth/register", request);
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/requests?userId=" + i)
             {
-                rateLimitedResponse = response;
-                break;
-            }
-            await Task.Delay(50);
-        }
-
-        // Assert
-        if (rateLimitedResponse != null)
-        {
-            // Response should contain retry information
-            var content = await rateLimitedResponse.Content.ReadAsStringAsync();
-            content.Should().Contain("too many", System.StringComparison.OrdinalIgnoreCase);
+                Content = JsonContent.Create(new { userId = i })
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token("forged-" + i, validSignature: false));
+            request.Headers.Add("X-User-Id", "spoof-" + i);
+            request.Headers.Add("X-Forwarded-For", "10.0.0." + i);
+            using var response = await client.SendAsync(request);
+            Assert.Equal(i < 5 ? HttpStatusCode.Unauthorized : HttpStatusCode.TooManyRequests, response.StatusCode);
         }
     }
 
     [Fact]
-    public async Task RateLimitByIP_SeparatesUsers()
+    public void AnonymousPartition_UsesServerRemoteIp_NotUntrustedClaims()
     {
-        // Arrange - Create two separate HTTP clients
-        using var client1 = _factory.CreateClient();
-        using var client2 = _factory.CreateClient();
-
-        var request1 = AuthRequestBuilder.CreateUser("ip1@test.com").BuildRegisterRequest();
-        var request2 = AuthRequestBuilder.CreateUser("ip2@test.com").BuildRegisterRequest();
-
-        // Act - Each client should have independent rate limit
-        var response1 = await client1.PostAsJsonAsync("/api/auth/register", request1);
-        var response2 = await client2.PostAsJsonAsync("/api/auth/register", request2);
-
-        // Assert
-        response1.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.BadRequest);
-        response2.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.BadRequest);
-        // Both should succeed since they're from different sources
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.1");
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "forged")]));
+        Assert.Equal("ip:192.0.2.1", RateLimitIdentity.GetPartitionKey(context));
+        context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.2");
+        Assert.Equal("ip:192.0.2.2", RateLimitIdentity.GetPartitionKey(context));
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "trusted")], "Bearer"));
+        Assert.Equal("user:trusted", RateLimitIdentity.GetPartitionKey(context));
     }
 
-    [Fact]
-    public async Task RateLimitError_Returns429StatusCode()
+    internal static string Token(string userId, bool validSignature = true, bool expired = false)
     {
-        // Arrange
-        var requests = Enumerable.Range(0, 8)
-            .Select(i => AuthRequestBuilder.CreateUser($"status{i}@test.com").BuildRegisterRequest())
-            .ToList();
-
-        // Act & Assert
-        foreach (var request in requests)
-        {
-            var response = await _client.PostAsJsonAsync("/api/auth/register", request);
-            
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                // Correct status code
-                response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
-                break;
-            }
-            
-            await Task.Delay(50);
-        }
+        var key = validSignature ? "TEST_ONLY_JWT_SIGNING_KEY_32_BYTES_MINIMUM_12345" : "INVALID_SIGNING_KEY_32_BYTES_MINIMUM_123456789";
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
+            "ServiceMarketplace", "ServiceMarketplaceUsers",
+            [new Claim(ClaimTypes.NameIdentifier, userId),
+             new Claim(MarketplaceCapabilityConstants.ClaimType, MarketplaceCapabilityConstants.ServiceCustomer)],
+            notBefore: DateTime.UtcNow.AddHours(-1), expires: expired ? DateTime.UtcNow.AddMinutes(-1) : DateTime.UtcNow.AddMinutes(10),
+            signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256)));
     }
 }

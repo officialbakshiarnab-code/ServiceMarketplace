@@ -57,71 +57,77 @@ public sealed class ServiceOrderReviewService(
 
     public async Task<ServiceOrderReviewDto> CreateAsync(Guid orderId, string customerId, CreateServiceOrderReviewDto dto)
     {
-        var order = await GetParticipantOrderAsync(orderId, customerId, tracking: true);
-        if (order.CustomerId != customerId)
-            throw new ForbiddenException("Only the customer can review this order.");
-
-        if (order.Status != ServiceOrderStatus.Completed)
-            throw new BadRequestException("Reviews require a completed service order.");
-
-        if (await context.ServiceOrderReviews.AnyAsync(r => r.ServiceOrderId == order.Id))
-            throw new BadRequestException("This order already has a review.");
-
-        if (dto.Rating is < 1 or > 5)
-            throw new BadRequestException("Rating must be between 1 and 5.");
-
-        var review = new ServiceOrderReview
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            ServiceOrderId = order.Id,
-            CustomerId = order.CustomerId,
-            ProviderId = order.ProviderId,
-            Rating = dto.Rating,
-            Feedback = NormalizeOptional(dto.Feedback, 2000)
-        };
+            var order = await GetParticipantOrderAsync(orderId, customerId, tracking: true);
+            if (order.CustomerId != customerId)
+                throw new ForbiddenException("Only the customer can review this order.");
 
-        context.ServiceOrderReviews.Add(review);
-        await UpdateProviderAggregateAsync(order.ProviderId, dto.Rating);
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            order,
-            customerId,
-            "Customer",
-            "ServiceOrderReviewCreated",
-            null,
-            null,
-            $"{review.Rating}-star review created.");
-        await notificationService.NotifyServiceOrderReviewReceivedAsync(review.Id);
+            if (order.Status != ServiceOrderStatus.Completed)
+                throw new BadRequestException("Reviews require a completed service order.");
 
-        return ToDto(review);
+            if (await context.ServiceOrderReviews.AnyAsync(r => r.ServiceOrderId == order.Id))
+                throw new BadRequestException("This order already has a review.");
+
+            if (dto.Rating is < 1 or > 5)
+                throw new BadRequestException("Rating must be between 1 and 5.");
+
+            var review = new ServiceOrderReview
+            {
+                ServiceOrderId = order.Id,
+                CustomerId = order.CustomerId,
+                ProviderId = order.ProviderId,
+                Rating = dto.Rating,
+                Feedback = NormalizeOptional(dto.Feedback, 2000)
+            };
+
+            context.ServiceOrderReviews.Add(review);
+            await UpdateProviderAggregateAsync(order.ProviderId, dto.Rating);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                order,
+                customerId,
+                "Customer",
+                "ServiceOrderReviewCreated",
+                null,
+                null,
+                $"{review.Rating}-star review created.");
+            await notificationService.NotifyServiceOrderReviewReceivedAsync(review.Id);
+
+            return ToDto(review);
+        });
     }
 
     public async Task<ServiceOrderReviewDto> ModerateAsync(Guid reviewId, string adminUserId, ModerateServiceOrderReviewDto dto)
     {
-        if (string.IsNullOrWhiteSpace(adminUserId))
-            throw new UnauthorizedAccessException("Admin identity is required.");
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(adminUserId))
+                throw new UnauthorizedAccessException("Admin identity is required.");
 
-        var review = await context.ServiceOrderReviews
-            .Include(r => r.ServiceOrder)
-            .FirstOrDefaultAsync(r => r.Id == reviewId)
-            ?? throw new NotFoundException("Review not found.");
+            var review = await context.ServiceOrderReviews
+                .Include(r => r.ServiceOrder)
+                .FirstOrDefaultAsync(r => r.Id == reviewId)
+                ?? throw new NotFoundException("Review not found.");
 
-        review.IsHidden = dto.IsHidden;
-        review.ModerationNotes = NormalizeOptional(dto.ModerationNotes, 1000);
-        review.UpdatedAt = DateTime.UtcNow;
+            review.IsHidden = dto.IsHidden;
+            review.ModerationNotes = NormalizeOptional(dto.ModerationNotes, 1000);
+            review.UpdatedAt = DateTime.UtcNow;
 
-        await context.SaveChangesAsync();
-        await RecalculateProviderAggregateAsync(review.ProviderId);
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            review.ServiceOrder,
-            adminUserId,
-            "Admin",
-            "ServiceOrderReviewModerated",
-            null,
-            review.IsHidden ? "Hidden" : "Visible",
-            review.ModerationNotes);
+            await context.SaveChangesAsync();
+            await RecalculateProviderAggregateAsync(review.ProviderId);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                review.ServiceOrder,
+                adminUserId,
+                "Admin",
+                "ServiceOrderReviewModerated",
+                null,
+                review.IsHidden ? "Hidden" : "Visible",
+                review.ModerationNotes);
 
-        return ToDto(review);
+            return ToDto(review);
+        });
     }
 
     private async Task<ServiceOrder> GetParticipantOrderAsync(Guid orderId, string userId, bool tracking)

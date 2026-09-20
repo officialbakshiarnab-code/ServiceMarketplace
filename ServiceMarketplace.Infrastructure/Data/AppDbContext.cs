@@ -8,7 +8,7 @@ namespace ServiceMarketplace.Infrastructure.Data;
 /// <summary>
 /// Application DbContext for marketplace persistence using custom auth tables.
 /// </summary>
-public class AppDbContext : DbContext
+public partial class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 

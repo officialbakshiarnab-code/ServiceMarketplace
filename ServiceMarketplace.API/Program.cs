@@ -137,7 +137,7 @@ builder.Services.AddAuthentication(options =>
 
             await context.Response.WriteAsJsonAsync(new
             {
-                error = "unauthorized",
+                error = context.AuthenticateFailure is SecurityTokenExpiredException ? "access_token_expired" : "unauthorized",
                 message = "Authentication is required to access this resource.",
                 traceId = context.HttpContext.TraceIdentifier
             });
@@ -197,7 +197,7 @@ builder.Services.AddRateLimiter(options =>
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
         return RateLimitPartition.GetSlidingWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: RateLimitIdentity.GetPartitionKey(context),
             factory: _ => new SlidingWindowRateLimiterOptions
             {
                 PermitLimit = 100,
@@ -212,7 +212,7 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("auth", context =>
     {
         return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: RateLimitIdentity.GetPartitionKey(context),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5,
@@ -226,7 +226,7 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("refresh", context =>
     {
         return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: RateLimitIdentity.GetPartitionKey(context),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
@@ -240,9 +240,7 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("bids", context =>
     {
         // Extract user ID from JWT if authenticated
-        var userId = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                     ?? context.Connection.RemoteIpAddress?.ToString()
-                     ?? "unknown";
+        var userId = RateLimitIdentity.GetPartitionKey(context);
 
         return RateLimitPartition.GetSlidingWindowLimiter(
             partitionKey: userId,
@@ -260,9 +258,7 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("requests", context =>
     {
         // Extract user ID from JWT if authenticated
-        var userId = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                     ?? context.Connection.RemoteIpAddress?.ToString()
-                     ?? "unknown";
+        var userId = RateLimitIdentity.GetPartitionKey(context);
 
         return RateLimitPartition.GetSlidingWindowLimiter(
             partitionKey: userId,
@@ -279,9 +275,7 @@ builder.Services.AddRateLimiter(options =>
     // Messaging endpoints: keep service-order chat usable while limiting burst abuse.
     options.AddPolicy("messaging", context =>
     {
-        var userId = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                     ?? context.Connection.RemoteIpAddress?.ToString()
-                     ?? "unknown";
+        var userId = RateLimitIdentity.GetPartitionKey(context);
 
         return RateLimitPartition.GetSlidingWindowLimiter(
             partitionKey: userId,
@@ -298,9 +292,7 @@ builder.Services.AddRateLimiter(options =>
     // Admin endpoints: Higher limits for administrative tasks
     options.AddPolicy("admin", context =>
     {
-        var userId = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                     ?? context.Connection.RemoteIpAddress?.ToString()
-                     ?? "unknown";
+        var userId = RateLimitIdentity.GetPartitionKey(context);
 
         return RateLimitPartition.GetSlidingWindowLimiter(
             partitionKey: userId,
@@ -323,6 +315,8 @@ builder.Services.AddRateLimiter(options =>
         var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfterValue)
             ? retryAfterValue.TotalSeconds
             : 60;
+
+        context.HttpContext.Response.Headers.RetryAfter = Math.Ceiling(retryAfter).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         await context.HttpContext.Response.WriteAsJsonAsync(new
         {
@@ -561,13 +555,15 @@ if (securitySettings.EnforceHttps)
 // WHY: CORS must be applied before Authentication/Authorization/Controllers
 app.UseCors();
 
-// Apply rate limiting before authentication
-if (!app.Environment.IsEnvironment("Testing"))
+// Authenticate first so rate limits can use validated user claims.
+app.UseAuthentication();
+
+// The dedicated test host opts in without enabling limits for the fast suite.
+if (!app.Environment.IsEnvironment("Testing") || builder.Configuration.GetValue<bool>("Testing:EnableRateLimiting"))
 {
     app.UseRateLimiter();
 }
 
-app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<MessagingHub>("/hubs/messaging", options =>

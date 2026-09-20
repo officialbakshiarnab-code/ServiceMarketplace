@@ -390,69 +390,72 @@ public class ServiceRequestService : IServiceRequestService
 
     public async Task AcceptBidAsync(Guid requestId, Guid bidId, string userId)
     {
-        if (string.IsNullOrWhiteSpace(userId))
-            throw new UnauthorizedAccessException("Authentication is required.");
-
-        var request = await _context.ServiceRequests
-            .Include(r => r.Bids)
-            .FirstOrDefaultAsync(r => r.Id == requestId);
-
-        if (request == null)
-            throw new NotFoundException("Service request not found");
-
-        if (request.CustomerId != userId)
-            throw new ForbiddenException("Not authorized to accept bids for this request");
-
-        if (request.Status != ServiceRequestStatus.Open)
-            throw new BadRequestException("Request is not open");
-
-        var selectedBid = request.Bids.FirstOrDefault(b => b.Id == bidId);
-        if (selectedBid == null)
-            throw new NotFoundException("Bid not found");
-
-        var existingOrder = await _context.ServiceOrders.AnyAsync(o => o.ServiceRequestId == requestId);
-        if (existingOrder)
-            throw new BadRequestException("A service order already exists for this request");
-
-        // Accept selected bid
-        selectedBid.Status = BidStatus.Accepted;
-
-        // Reject all others
-        foreach (var bid in request.Bids.Where(b => b.Id != bidId))
-            bid.Status = BidStatus.Rejected;
-
-        request.Status = ServiceRequestStatus.Accepted;
-
-        var order = new ServiceOrder
+        await _context.ExecuteAtomicAsync(async () =>
         {
-            ServiceRequestId = request.Id,
-            AcceptedBidId = selectedBid.Id,
-            CustomerId = request.CustomerId,
-            ProviderId = selectedBid.ServiceProviderId,
-            AgreedAmount = selectedBid.Amount,
-            ScheduledStartAt = selectedBid.ProposedDateTime,
-            EstimatedDurationMinutes = selectedBid.EstimatedDurationMinutes,
-            Status = ServiceOrderStatus.PendingStart,
-            CreatedAt = DateTime.UtcNow
-        };
-        _context.ServiceOrders.Add(order);
+            if (string.IsNullOrWhiteSpace(userId))
+                throw new UnauthorizedAccessException("Authentication is required.");
 
-        await _context.SaveChangesAsync();
+            var request = await _context.ServiceRequests
+                .Include(r => r.Bids)
+                .FirstOrDefaultAsync(r => r.Id == requestId);
 
-        await _auditService.RecordAsync(
-            order,
-            userId,
-            "Customer",
-            "ServiceOrderCreated",
-            null,
-            order.Status.ToString(),
-            $"Accepted bid {selectedBid.Id}.");
-        await _conversationService.EnsureServiceOrderConversationAsync(
-            order.Id,
-            "Order confirmed. You can now use this secure service-order chat.",
-            $"service-order:{order.Id:N}:created");
-        await _notificationService.NotifyBidAcceptedAsync(selectedBid.Id);
-        await _notificationService.NotifyServiceOrderCreatedAsync(order.Id);
+            if (request == null)
+                throw new NotFoundException("Service request not found");
+
+            if (request.CustomerId != userId)
+                throw new ForbiddenException("Not authorized to accept bids for this request");
+
+            if (request.Status != ServiceRequestStatus.Open)
+                throw new BadRequestException("Request is not open");
+
+            var selectedBid = request.Bids.FirstOrDefault(b => b.Id == bidId);
+            if (selectedBid == null)
+                throw new NotFoundException("Bid not found");
+
+            var existingOrder = await _context.ServiceOrders.AnyAsync(o => o.ServiceRequestId == requestId);
+            if (existingOrder)
+                throw new BadRequestException("A service order already exists for this request");
+
+            // Accept selected bid
+            selectedBid.Status = BidStatus.Accepted;
+
+            // Reject all others
+            foreach (var bid in request.Bids.Where(b => b.Id != bidId))
+                bid.Status = BidStatus.Rejected;
+
+            request.Status = ServiceRequestStatus.Accepted;
+
+            var order = new ServiceOrder
+            {
+                ServiceRequestId = request.Id,
+                AcceptedBidId = selectedBid.Id,
+                CustomerId = request.CustomerId,
+                ProviderId = selectedBid.ServiceProviderId,
+                AgreedAmount = selectedBid.Amount,
+                ScheduledStartAt = selectedBid.ProposedDateTime,
+                EstimatedDurationMinutes = selectedBid.EstimatedDurationMinutes,
+                Status = ServiceOrderStatus.PendingStart,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.ServiceOrders.Add(order);
+
+            await _context.SaveChangesAsync();
+
+            await _auditService.RecordAsync(
+                order,
+                userId,
+                "Customer",
+                "ServiceOrderCreated",
+                null,
+                order.Status.ToString(),
+                $"Accepted bid {selectedBid.Id}.");
+            await _conversationService.EnsureServiceOrderConversationAsync(
+                order.Id,
+                "Order confirmed. You can now use this secure service-order chat.",
+                $"service-order:{order.Id:N}:created");
+            await _notificationService.NotifyBidAcceptedAsync(selectedBid.Id);
+            await _notificationService.NotifyServiceOrderCreatedAsync(order.Id);
+        });
     }
 
     public async Task<UserDashboardStatsDto> GetDashboardStatsAsync(string userId)

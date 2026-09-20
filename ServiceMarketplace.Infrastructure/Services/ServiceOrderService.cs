@@ -48,170 +48,182 @@ public sealed class ServiceOrderService(
 
     public async Task<ServiceOrderDto> StartAsync(Guid orderId, string providerId)
     {
-        var order = await GetParticipantOrderAsync(orderId, providerId, tracking: true);
-        if (order.ProviderId != providerId)
-            throw new ForbiddenException("Only the accepted provider can start this order.");
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            var order = await GetParticipantOrderAsync(orderId, providerId, tracking: true);
+            if (order.ProviderId != providerId)
+                throw new ForbiddenException("Only the accepted provider can start this order.");
 
-        if (order.Status != ServiceOrderStatus.PendingStart)
-            throw new BadRequestException("Only pending orders can be started.");
+            if (order.Status != ServiceOrderStatus.PendingStart)
+                throw new BadRequestException("Only pending orders can be started.");
 
-        var fromStatus = order.Status;
-        order.Status = ServiceOrderStatus.InProgress;
-        order.StartedAt = DateTime.UtcNow;
-        order.UpdatedAt = DateTime.UtcNow;
+            var fromStatus = order.Status;
+            order.Status = ServiceOrderStatus.InProgress;
+            order.StartedAt = DateTime.UtcNow;
+            order.UpdatedAt = DateTime.UtcNow;
 
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            order,
-            providerId,
-            "Provider",
-            "ServiceOrderStarted",
-            fromStatus.ToString(),
-            order.Status.ToString());
-        await conversationService.AddServiceOrderSystemMessageAsync(
-            order.Id,
-            "Provider started work on this service order.",
-            "started");
-        await notificationService.NotifyServiceOrderStartedAsync(order.Id);
-        return await ToDtoAsync(order);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                order,
+                providerId,
+                "Provider",
+                "ServiceOrderStarted",
+                fromStatus.ToString(),
+                order.Status.ToString());
+            await conversationService.AddServiceOrderSystemMessageAsync(
+                order.Id,
+                "Provider started work on this service order.",
+                "started");
+            await notificationService.NotifyServiceOrderStartedAsync(order.Id);
+            return await ToDtoAsync(order);
+        });
     }
 
     public async Task<ServiceOrderDto> MarkProviderCompletedAsync(Guid orderId, string providerId)
     {
-        var order = await GetParticipantOrderAsync(orderId, providerId, tracking: true);
-        if (order.ProviderId != providerId)
-            throw new ForbiddenException("Only the accepted provider can mark this order complete.");
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            var order = await GetParticipantOrderAsync(orderId, providerId, tracking: true);
+            if (order.ProviderId != providerId)
+                throw new ForbiddenException("Only the accepted provider can mark this order complete.");
 
-        if (order.Status != ServiceOrderStatus.InProgress)
-            throw new BadRequestException("Only in-progress orders can be marked complete by the provider.");
+            if (order.Status != ServiceOrderStatus.InProgress)
+                throw new BadRequestException("Only in-progress orders can be marked complete by the provider.");
 
-        var fromStatus = order.Status;
-        order.Status = ServiceOrderStatus.ProviderCompleted;
-        order.ProviderCompletedAt = DateTime.UtcNow;
-        order.UpdatedAt = DateTime.UtcNow;
+            var fromStatus = order.Status;
+            order.Status = ServiceOrderStatus.ProviderCompleted;
+            order.ProviderCompletedAt = DateTime.UtcNow;
+            order.UpdatedAt = DateTime.UtcNow;
 
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            order,
-            providerId,
-            "Provider",
-            "ServiceOrderProviderCompleted",
-            fromStatus.ToString(),
-            order.Status.ToString());
-        await conversationService.AddServiceOrderSystemMessageAsync(
-            order.Id,
-            "Provider marked the work complete.",
-            "provider-completed");
-        await notificationService.NotifyServiceOrderProviderCompletedAsync(order.Id);
-        return await ToDtoAsync(order);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                order,
+                providerId,
+                "Provider",
+                "ServiceOrderProviderCompleted",
+                fromStatus.ToString(),
+                order.Status.ToString());
+            await conversationService.AddServiceOrderSystemMessageAsync(
+                order.Id,
+                "Provider marked the work complete.",
+                "provider-completed");
+            await notificationService.NotifyServiceOrderProviderCompletedAsync(order.Id);
+            return await ToDtoAsync(order);
+        });
     }
 
     public async Task<ServiceOrderDto> ConfirmCustomerCompletionAsync(Guid orderId, string customerId)
     {
-        var order = await GetParticipantOrderAsync(orderId, customerId, tracking: true);
-        if (order.CustomerId != customerId)
-            throw new ForbiddenException("Only the customer can confirm completion.");
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            var order = await GetParticipantOrderAsync(orderId, customerId, tracking: true);
+            if (order.CustomerId != customerId)
+                throw new ForbiddenException("Only the customer can confirm completion.");
 
-        if (order.Status != ServiceOrderStatus.ProviderCompleted)
-            throw new BadRequestException("Only provider-completed orders can be confirmed.");
+            if (order.Status != ServiceOrderStatus.ProviderCompleted)
+                throw new BadRequestException("Only provider-completed orders can be confirmed.");
 
-        var payment = await context.ServiceOrderPayments
-            .FirstOrDefaultAsync(p => p.ServiceOrderId == order.Id)
-            ?? throw new BadRequestException("Payment must be recorded before completion can be confirmed.");
+            var payment = await context.ServiceOrderPayments
+                .FirstOrDefaultAsync(p => p.ServiceOrderId == order.Id)
+                ?? throw new BadRequestException("Payment must be recorded before completion can be confirmed.");
 
-        if (payment.Status != PaymentStatus.Held)
-            throw new BadRequestException("Payment must be recorded and held before completion can be confirmed.");
+            if (payment.Status != PaymentStatus.Held)
+                throw new BadRequestException("Payment must be recorded and held before completion can be confirmed.");
 
-        var hasOpenDispute = await context.ServiceOrderDisputes.AnyAsync(d =>
-            d.ServiceOrderId == order.Id &&
-            d.Status != ServiceOrderDisputeStatus.RefundedToCustomer &&
-            d.Status != ServiceOrderDisputeStatus.ReleasedToProvider &&
-            d.Status != ServiceOrderDisputeStatus.Rejected &&
-            d.Status != ServiceOrderDisputeStatus.Cancelled);
+            var hasOpenDispute = await context.ServiceOrderDisputes.AnyAsync(d =>
+                d.ServiceOrderId == order.Id &&
+                d.Status != ServiceOrderDisputeStatus.RefundedToCustomer &&
+                d.Status != ServiceOrderDisputeStatus.ReleasedToProvider &&
+                d.Status != ServiceOrderDisputeStatus.Rejected &&
+                d.Status != ServiceOrderDisputeStatus.Cancelled);
 
-        if (hasOpenDispute)
-            throw new BadRequestException("Open disputes must be resolved before completion can be confirmed.");
+            if (hasOpenDispute)
+                throw new BadRequestException("Open disputes must be resolved before completion can be confirmed.");
 
-        var fromStatus = order.Status;
-        order.Status = ServiceOrderStatus.Completed;
-        order.CompletedAt = DateTime.UtcNow;
-        order.UpdatedAt = DateTime.UtcNow;
+            var fromStatus = order.Status;
+            order.Status = ServiceOrderStatus.Completed;
+            order.CompletedAt = DateTime.UtcNow;
+            order.UpdatedAt = DateTime.UtcNow;
 
-        order.ServiceRequest.Status = ServiceRequestStatus.Closed;
-        payment.Status = PaymentStatus.Released;
-        payment.ReleasedAt = DateTime.UtcNow;
-        payment.UpdatedAt = DateTime.UtcNow;
+            order.ServiceRequest.Status = ServiceRequestStatus.Closed;
+            payment.Status = PaymentStatus.Released;
+            payment.ReleasedAt = DateTime.UtcNow;
+            payment.UpdatedAt = DateTime.UtcNow;
 
-        await context.SaveChangesAsync();
-        if (payment.Method == PaymentMethod.Platform)
-            await EnsureProviderPayoutAsync(payment);
+            await context.SaveChangesAsync();
+            if (payment.Method == PaymentMethod.Platform)
+                await EnsureProviderPayoutAsync(payment);
 
-        await auditService.RecordAsync(
-            order,
-            customerId,
-            "Customer",
-            "ServiceOrderCompleted",
-            fromStatus.ToString(),
-            order.Status.ToString(),
-            $"Payment {payment.Id} released.");
-        await conversationService.AddServiceOrderSystemMessageAsync(
-            order.Id,
-            "Customer confirmed completion. The service order is complete.",
-            "completed");
-        await notificationService.NotifyServiceOrderCompletedAsync(order.Id);
-        return await ToDtoAsync(order);
+            await auditService.RecordAsync(
+                order,
+                customerId,
+                "Customer",
+                "ServiceOrderCompleted",
+                fromStatus.ToString(),
+                order.Status.ToString(),
+                $"Payment {payment.Id} released.");
+            await conversationService.AddServiceOrderSystemMessageAsync(
+                order.Id,
+                "Customer confirmed completion. The service order is complete.",
+                "completed");
+            await notificationService.NotifyServiceOrderCompletedAsync(order.Id);
+            return await ToDtoAsync(order);
+        });
     }
 
     public async Task<ServiceOrderDto> CancelAsync(Guid orderId, string userId, CancelServiceOrderDto dto)
     {
-        var order = await GetParticipantOrderAsync(orderId, userId, tracking: true);
-        if (order.Status is ServiceOrderStatus.Completed or ServiceOrderStatus.Cancelled)
-            throw new BadRequestException("Completed or cancelled orders cannot be cancelled.");
-
-        var hasRecordedPayment = await context.ServiceOrderPayments
-            .AnyAsync(p => p.ServiceOrderId == order.Id && p.Status != PaymentStatus.Pending);
-
-        if (hasRecordedPayment)
-            throw new BadRequestException("Orders with recorded payment cannot be cancelled from this workflow.");
-
-        var reason = NormalizeReason(dto.Reason);
-        var pendingPlatformIntents = await context.PlatformPaymentIntents
-            .Where(i =>
-                i.ServiceOrderId == order.Id &&
-                i.Status == PlatformPaymentIntentStatus.PendingVerification)
-            .ToListAsync();
-
-        var fromStatus = order.Status;
-        order.Status = ServiceOrderStatus.Cancelled;
-        order.CancelledAt = DateTime.UtcNow;
-        order.CancelledByUserId = userId;
-        order.CancellationReason = reason;
-        order.UpdatedAt = DateTime.UtcNow;
-
-        order.ServiceRequest.Status = ServiceRequestStatus.Closed;
-
-        foreach (var intent in pendingPlatformIntents)
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            intent.Status = PlatformPaymentIntentStatus.Cancelled;
-            intent.FailureReason = "Order cancelled before platform payment verification.";
-            intent.UpdatedAt = DateTime.UtcNow;
-        }
+            var order = await GetParticipantOrderAsync(orderId, userId, tracking: true);
+            if (order.Status is ServiceOrderStatus.Completed or ServiceOrderStatus.Cancelled)
+                throw new BadRequestException("Completed or cancelled orders cannot be cancelled.");
 
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            order,
-            userId,
-            order.CustomerId == userId ? "Customer" : "Provider",
-            "ServiceOrderCancelled",
-            fromStatus.ToString(),
-            order.Status.ToString(),
-            reason);
-        await conversationService.AddServiceOrderSystemMessageAsync(
-            order.Id,
-            "This service order was cancelled.",
-            "cancelled");
-        await notificationService.NotifyServiceOrderCancelledAsync(order.Id, userId);
-        return await ToDtoAsync(order);
+            var hasRecordedPayment = await context.ServiceOrderPayments
+                .AnyAsync(p => p.ServiceOrderId == order.Id && p.Status != PaymentStatus.Pending);
+
+            if (hasRecordedPayment)
+                throw new BadRequestException("Orders with recorded payment cannot be cancelled from this workflow.");
+
+            var reason = NormalizeReason(dto.Reason);
+            var pendingPlatformIntents = await context.PlatformPaymentIntents
+                .Where(i =>
+                    i.ServiceOrderId == order.Id &&
+                    i.Status == PlatformPaymentIntentStatus.PendingVerification)
+                .ToListAsync();
+
+            var fromStatus = order.Status;
+            order.Status = ServiceOrderStatus.Cancelled;
+            order.CancelledAt = DateTime.UtcNow;
+            order.CancelledByUserId = userId;
+            order.CancellationReason = reason;
+            order.UpdatedAt = DateTime.UtcNow;
+
+            order.ServiceRequest.Status = ServiceRequestStatus.Closed;
+
+            foreach (var intent in pendingPlatformIntents)
+            {
+                intent.Status = PlatformPaymentIntentStatus.Cancelled;
+                intent.FailureReason = "Order cancelled before platform payment verification.";
+                intent.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                order,
+                userId,
+                order.CustomerId == userId ? "Customer" : "Provider",
+                "ServiceOrderCancelled",
+                fromStatus.ToString(),
+                order.Status.ToString(),
+                reason);
+            await conversationService.AddServiceOrderSystemMessageAsync(
+                order.Id,
+                "This service order was cancelled.",
+                "cancelled");
+            await notificationService.NotifyServiceOrderCancelledAsync(order.Id, userId);
+            return await ToDtoAsync(order);
+        });
     }
 
     private IQueryable<ServiceOrder> BaseQuery()

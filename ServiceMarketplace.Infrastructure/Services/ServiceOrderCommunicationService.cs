@@ -27,53 +27,59 @@ public sealed class ServiceOrderCommunicationService(
 
     public async Task<ServiceOrderMessageDto> SendMessageAsync(Guid orderId, string senderUserId, CreateServiceOrderMessageDto dto)
     {
-        var order = await GetParticipantOrderAsync(orderId, senderUserId);
-        var body = NormalizeBody(dto.Body);
-        var recipientUserId = string.Equals(senderUserId, order.CustomerId, StringComparison.Ordinal)
-            ? order.ProviderId
-            : order.CustomerId;
-
-        var message = new ServiceOrderMessage
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            ServiceOrderId = order.Id,
-            SenderUserId = senderUserId,
-            RecipientUserId = recipientUserId,
-            Body = body,
-            CreatedAt = DateTime.UtcNow
-        };
+            var order = await GetParticipantOrderAsync(orderId, senderUserId);
+            var body = NormalizeBody(dto.Body);
+            var recipientUserId = string.Equals(senderUserId, order.CustomerId, StringComparison.Ordinal)
+                ? order.ProviderId
+                : order.CustomerId;
 
-        context.ServiceOrderMessages.Add(message);
-        await context.SaveChangesAsync();
+            var message = new ServiceOrderMessage
+            {
+                ServiceOrderId = order.Id,
+                SenderUserId = senderUserId,
+                RecipientUserId = recipientUserId,
+                Body = body,
+                CreatedAt = DateTime.UtcNow
+            };
 
-        var conversationId = await conversationService.EnsureServiceOrderConversationAsync(order.Id);
-        await conversationService.SendMessageAsync(conversationId, senderUserId, new SendConversationMessageDto
-        {
-            Body = body,
-            ClientMessageId = ToConversationClientMessageId(message.Id)
+            context.ServiceOrderMessages.Add(message);
+            await context.SaveChangesAsync();
+
+            var conversationId = await conversationService.EnsureServiceOrderConversationAsync(order.Id);
+            await conversationService.SendMessageAsync(conversationId, senderUserId, new SendConversationMessageDto
+            {
+                Body = body,
+                ClientMessageId = ToConversationClientMessageId(message.Id)
+            });
+
+            await notificationService.NotifyOrderMessageReceivedAsync(message.Id);
+            return ToDto(message);
         });
-
-        await notificationService.NotifyOrderMessageReceivedAsync(message.Id);
-        return ToDto(message);
     }
 
     public async Task<int> MarkThreadReadAsync(Guid orderId, string userId)
     {
-        await GetParticipantOrderAsync(orderId, userId);
-
-        var unread = await context.ServiceOrderMessages
-            .Where(m => m.ServiceOrderId == orderId && m.RecipientUserId == userId && m.ReadAt == null)
-            .ToListAsync();
-
-        foreach (var message in unread)
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            message.ReadAt = DateTime.UtcNow;
-            message.UpdatedAt = DateTime.UtcNow;
-        }
+            await GetParticipantOrderAsync(orderId, userId);
 
-        await context.SaveChangesAsync();
-        var conversationId = await conversationService.SyncServiceOrderMessagesAsync(orderId);
-        await conversationService.MarkReadAsync(conversationId, userId);
-        return unread.Count;
+            var unread = await context.ServiceOrderMessages
+                .Where(m => m.ServiceOrderId == orderId && m.RecipientUserId == userId && m.ReadAt == null)
+                .ToListAsync();
+
+            foreach (var message in unread)
+            {
+                message.ReadAt = DateTime.UtcNow;
+                message.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await context.SaveChangesAsync();
+            var conversationId = await conversationService.SyncServiceOrderMessagesAsync(orderId);
+            await conversationService.MarkReadAsync(conversationId, userId);
+            return unread.Count;
+        });
     }
 
     private async Task<ServiceOrder> GetParticipantOrderAsync(Guid orderId, string userId)

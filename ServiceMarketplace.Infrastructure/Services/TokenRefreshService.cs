@@ -22,7 +22,6 @@ public sealed class TokenRefreshService(
     ILogger<TokenRefreshService> logger) : ITokenRefreshService
 {
     private const int RefreshTokenLifetimeDays = 7;
-    private const int IdempotencyWindowSeconds = 30;
     private const int TokenHashLength = 32;
 
     public async Task<string> IssueRefreshTokenAsync(
@@ -61,87 +60,62 @@ public sealed class TokenRefreshService(
     }
 
     public async Task<RefreshTokenResponse> RefreshAccessTokenAsync(
-        string refreshToken,
-        string? ipAddress,
-        string? userAgent)
+        string refreshToken, string? ipAddress, string? userAgent)
     {
         if (string.IsNullOrWhiteSpace(refreshToken))
             throw new InvalidOperationException("Refresh token is required");
-
         var tokenHash = HashToken(refreshToken);
 
-        var tokenEntity = await dbContext.RefreshTokens
-            .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
-
-        if (tokenEntity == null)
+        var result = await dbContext.ExecuteAtomicAsync<RefreshTokenResponse?>(async () =>
         {
-            logger.LogWarning("[TokenRefreshService] Refresh token not found");
-            throw new InvalidOperationException("Refresh token is invalid or has been revoked");
-        }
-
-        if (!tokenEntity.IsActive)
-        {
-            if (await DetectTokenReuseAsync(refreshToken))
+            // Serialize consumption of the same token across API instances. Client-side
+            // coordination avoids normal races; this also protects direct API callers.
+            var query = dbContext.Database.IsNpgsql()
+                ? dbContext.RefreshTokens.FromSqlInterpolated(
+                    $"SELECT * FROM \"RefreshTokens\" WHERE \"TokenHash\" = {tokenHash} FOR UPDATE")
+                : dbContext.RefreshTokens.AsQueryable();
+            var tokenEntity = await query.FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
+            if (tokenEntity == null)
             {
-                logger.LogError(
-                    "[TokenRefreshService] Token reuse detected for user {UserId}. Revoking family {TokenFamily}",
-                    tokenEntity.UserId, tokenEntity.TokenFamily);
-
-                await RevokeFamilyAsync(tokenEntity.TokenFamily, "TokenReuseDetected");
+                logger.LogWarning("Refresh token was not found");
+                return null;
+            }
+            if (!tokenEntity.IsActive)
+            {
+                if (tokenEntity.RevokedAt.HasValue)
+                {
+                    logger.LogWarning("Refresh token reuse detected. UserId: {UserId}, Family: {TokenFamily}",
+                        tokenEntity.UserId, tokenEntity.TokenFamily);
+                    await RevokeFamilyAsync(tokenEntity.TokenFamily, "TokenReuseDetected");
+                }
+                // Return a rejected outcome so revocation commits before the caller gets 401.
+                return null;
             }
 
-            throw new InvalidOperationException("Refresh token has expired or been revoked");
-        }
-
-        if (tokenEntity.LastUsedAt.HasValue &&
-            (DateTime.UtcNow - tokenEntity.LastUsedAt).Value.TotalSeconds < IdempotencyWindowSeconds)
-        {
-            logger.LogInformation(
-                "[TokenRefreshService] Duplicate refresh within idempotency window for user {UserId}",
-                tokenEntity.UserId);
-        }
-
-        var revokeEntity = await dbContext.RefreshTokens
-            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
-
-        if (revokeEntity != null)
-        {
-            revokeEntity.RevokedAt = DateTime.UtcNow;
-            revokeEntity.RevocationReason = "RotatedAtRefresh";
-            revokeEntity.LastUsedAt = DateTime.UtcNow;
-            revokeEntity.LastUsedIpAddress = ipAddress;
+            var newAccessToken = await GenerateAccessTokenAsync(tokenEntity.UserId, tokenEntity.SessionId);
+            var newTokenValue = GenerateRandomToken();
+            var now = DateTime.UtcNow;
+            tokenEntity.RevokedAt = now;
+            tokenEntity.RevocationReason = "RotatedAtRefresh";
+            tokenEntity.LastUsedAt = now;
+            tokenEntity.LastUsedIpAddress = ipAddress;
+            var replacement = new RefreshTokenEntity
+            {
+                UserId = tokenEntity.UserId, SessionId = tokenEntity.SessionId,
+                TokenHash = HashToken(newTokenValue), IssuedAt = now,
+                ExpiresAt = now.AddDays(RefreshTokenLifetimeDays), TokenFamily = tokenEntity.TokenFamily,
+                IssuedFromIpAddress = ipAddress, IssuedFromUserAgent = userAgent
+            };
+            dbContext.RefreshTokens.Add(replacement);
+            // Revocation and replacement are atomic: a failed insert cannot strand the session.
             await dbContext.SaveChangesAsync();
-        }
-
-        var newTokenValue = GenerateRandomToken();
-        var newTokenHash = HashToken(newTokenValue);
-
-        var newTokenEntity = new RefreshTokenEntity
-        {
-            UserId = tokenEntity.UserId,
-            SessionId = tokenEntity.SessionId,
-            TokenHash = newTokenHash,
-            IssuedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(RefreshTokenLifetimeDays),
-            TokenFamily = tokenEntity.TokenFamily,
-            IssuedFromIpAddress = ipAddress,
-            IssuedFromUserAgent = userAgent
-        };
-
-        dbContext.RefreshTokens.Add(newTokenEntity);
-        await dbContext.SaveChangesAsync();
-
-        var newAccessToken = await GenerateAccessTokenAsync(tokenEntity.UserId, tokenEntity.SessionId);
-        var expirationTime = DateTime.UtcNow.AddMinutes(10);
-
-        return new RefreshTokenResponse
-        {
-            AccessToken = newAccessToken,
-            AccessTokenExpiresAt = expirationTime,
-            RefreshToken = newTokenValue,
-            RefreshTokenExpiresAt = newTokenEntity.ExpiresAt
-        };
+            return new RefreshTokenResponse
+            {
+                AccessToken = newAccessToken, AccessTokenExpiresAt = now.AddMinutes(10),
+                RefreshToken = newTokenValue, RefreshTokenExpiresAt = replacement.ExpiresAt
+            };
+        });
+        return result ?? throw new InvalidOperationException("Refresh token is invalid, expired or revoked");
     }
 
     public async Task RevokeAllTokensForUserAsync(string userId, string reason)

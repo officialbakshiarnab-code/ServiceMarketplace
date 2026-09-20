@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.JSInterop;
 using ServiceMarketplace.UI.Shared.Admin;
 using ServiceMarketplace.UI.Shared.Auth;
+using ServiceMarketplace.UI.Shared.Auth.Registration;
 using ServiceMarketplace.UI.Shared.Configuration;
 using ServiceMarketplace.UI.Shared.Realtime;
 using ServiceMarketplace.UI.Shared.Requests;
@@ -38,7 +39,13 @@ var apiBaseUri = ApiBaseUrlResolver.GetApiBaseUri(builder.Configuration);
 // 3. Sends request to API
 // 4. Returns response
 // This eliminates need for manual token attachment in each API client
-builder.Services.AddScoped<AuthorizingHttpClientHandler>();
+builder.Services.AddScoped<SessionTokenRefreshService>();
+        builder.Services.AddScoped(sp => new RefreshTokenTransport(new HttpClient
+        {
+            BaseAddress = ApiBaseUrlResolver.GetApiBaseUri(sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()),
+            Timeout = TimeSpan.FromSeconds(30)
+        }));
+        builder.Services.AddScoped<AuthorizingHttpClientHandler>();
 
 // Configure HTTP client for API calls with platform identification
 builder.Services.AddScoped(sp =>
@@ -71,6 +78,11 @@ builder.Services.AddScoped<AuthRedirector>();
 builder.Services.AddScoped<AuthState>();
 builder.Services.AddScoped<AdminAccessGuard>();
 builder.Services.AddScoped<IRegistrationIntentStorage, MemoryRegistrationIntentStorage>();
+builder.Services.AddScoped<IRegistrationConversationService, RegistrationConversationService>();
+builder.Services.AddScoped<IRegistrationPayloadMapper, RegistrationPayloadMapper>();
+builder.Services.AddScoped<ISpeechInputService, UnavailableSpeechInputService>();
+builder.Services.AddScoped<IRegistrationLocationService, BrowserRegistrationLocationService>();
+builder.Services.AddScoped<IReverseGeocodingService, UnavailableReverseGeocodingService>();
 
 // Configure new auth state management services
 builder.Services.AddScoped<AuthenticationStateInitializer>();

@@ -15,11 +15,10 @@ namespace ServiceMarketplace.UI.Shared.Auth;
 /// - Treats non-200 responses gracefully
 /// - Returns result objects with success/error information
 /// </summary>
-public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStorage, ILogger<AuthApiClient> logger)
+public sealed class AuthApiClient(HttpClient httpClient, ILogger<AuthApiClient> logger, SessionTokenRefreshService session)
 {
     private const long MaxGovernmentIdFileSizeBytes = 5 * 1024 * 1024;
     private readonly HttpClient _httpClient = httpClient;
-    private readonly ITokenStorage _tokenStorage = tokenStorage;
     private readonly ILogger<AuthApiClient> _logger = logger;
 
     /// <summary>
@@ -111,16 +110,7 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
                 return LoginResult.Failed(error);
             }
 
-            // Persist access token for future authenticated requests
-            await _tokenStorage.SaveTokenAsync(payload.Token);
-            _logger.LogInformation("[AuthApiClient] JWT token stored successfully");
-
-            // Persist refresh token for token refresh flow
-            if (!string.IsNullOrWhiteSpace(payload.RefreshToken))
-            {
-                await _tokenStorage.SaveRefreshTokenAsync(payload.RefreshToken);
-                _logger.LogInformation("[AuthApiClient] Refresh token stored successfully");
-            }
+            await session.SetTokensAsync(payload.Token, payload.RefreshToken);
 
             _logger.LogInformation("[AuthApiClient] Login successful for {Email}", request.Email);
             return LoginResult.Successful(payload);
@@ -297,7 +287,7 @@ public sealed class AuthApiClient(HttpClient httpClient, ITokenStorage tokenStor
             // STEP 6: Always clear token from storage, regardless of API success
             // This ensures user can always logout from the UI perspective
             _logger.LogInformation("[AuthApiClient] Clearing token from storage...");
-            await _tokenStorage.ClearAsync();
+            await session.SignOutAsync();
             _logger.LogInformation("[AuthApiClient] Token cleared from storage - logout complete");
         }
     }

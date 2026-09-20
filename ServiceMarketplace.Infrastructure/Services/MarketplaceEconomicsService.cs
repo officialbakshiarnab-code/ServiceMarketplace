@@ -30,110 +30,117 @@ public sealed class MarketplaceEconomicsService(
 
     public async Task<PlatformPaymentIntentDto> CreatePlatformIntentAsync(Guid orderId, string customerId)
     {
-        var order = await GetParticipantOrderAsync(orderId, customerId, tracking: true);
-        if (order.CustomerId != customerId)
-            throw new ForbiddenException("Only the customer can start platform payment.");
-
-        if (order.Status != ServiceOrderStatus.ProviderCompleted)
-            throw new BadRequestException("Platform payment can be started only after the provider marks the order complete.");
-
-        if (await context.ServiceOrderPayments.AnyAsync(p => p.ServiceOrderId == order.Id))
-            throw new BadRequestException("Payment is already recorded for this order.");
-
-        var hasActiveIntent = await context.PlatformPaymentIntents.AnyAsync(i =>
-            i.ServiceOrderId == order.Id &&
-            i.Status == PlatformPaymentIntentStatus.PendingVerification &&
-            i.ExpiresAt > DateTime.UtcNow);
-
-        if (hasActiveIntent)
-            throw new BadRequestException("A platform payment intent is already pending verification for this order.");
-
-        var fee = CalculatePlatformFee(order.AgreedAmount);
-        var intent = new PlatformPaymentIntent
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            ServiceOrderId = order.Id,
-            CustomerId = order.CustomerId,
-            ProviderId = order.ProviderId,
-            Amount = order.AgreedAmount,
-            PlatformFeeAmount = fee,
-            ProviderPayoutAmount = order.AgreedAmount - fee,
-            Status = PlatformPaymentIntentStatus.PendingVerification,
-            GatewayReference = $"SMPI-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..36],
-            ExpiresAt = DateTime.UtcNow.AddMinutes(30)
-        };
+            var order = await GetParticipantOrderAsync(orderId, customerId, tracking: true);
+            if (order.CustomerId != customerId)
+                throw new ForbiddenException("Only the customer can start platform payment.");
 
-        context.PlatformPaymentIntents.Add(intent);
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            order,
-            customerId,
-            "Customer",
-            "PlatformPaymentIntentCreated",
-            null,
-            intent.Status.ToString(),
-            $"Platform payment intent {intent.GatewayReference} created for {intent.Amount:0.00}.");
+            if (order.Status != ServiceOrderStatus.ProviderCompleted)
+                throw new BadRequestException("Platform payment can be started only after the provider marks the order complete.");
 
-        return ToDto(intent);
+            if (await context.ServiceOrderPayments.AnyAsync(p => p.ServiceOrderId == order.Id))
+                throw new BadRequestException("Payment is already recorded for this order.");
+
+            var hasActiveIntent = await context.PlatformPaymentIntents.AnyAsync(i =>
+                i.ServiceOrderId == order.Id &&
+                i.Status == PlatformPaymentIntentStatus.PendingVerification &&
+                i.ExpiresAt > DateTime.UtcNow);
+
+            if (hasActiveIntent)
+                throw new BadRequestException("A platform payment intent is already pending verification for this order.");
+
+            var fee = CalculatePlatformFee(order.AgreedAmount);
+            var intent = new PlatformPaymentIntent
+            {
+                ServiceOrderId = order.Id,
+                CustomerId = order.CustomerId,
+                ProviderId = order.ProviderId,
+                Amount = order.AgreedAmount,
+                PlatformFeeAmount = fee,
+                ProviderPayoutAmount = order.AgreedAmount - fee,
+                Status = PlatformPaymentIntentStatus.PendingVerification,
+                GatewayReference = $"SMPI-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..36],
+                ExpiresAt = DateTime.UtcNow.AddMinutes(30)
+            };
+
+            context.PlatformPaymentIntents.Add(intent);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                order,
+                customerId,
+                "Customer",
+                "PlatformPaymentIntentCreated",
+                null,
+                intent.Status.ToString(),
+                $"Platform payment intent {intent.GatewayReference} created for {intent.Amount:0.00}.");
+
+            return ToDto(intent);
+        });
     }
 
+    // Administrator confirmation of an external payment reference. No gateway is called here.
     public async Task<ServiceOrderPaymentDto> VerifyPlatformIntentAsync(Guid intentId, string adminId, VerifyPlatformPaymentIntentDto dto)
     {
-        var gatewayPaymentId = NormalizeRequired(dto.GatewayPaymentId, 200, "Gateway payment id");
-
-        var intent = await context.PlatformPaymentIntents
-            .Include(i => i.ServiceOrder)
-            .FirstOrDefaultAsync(i => i.Id == intentId)
-            ?? throw new NotFoundException("Platform payment intent not found.");
-
-        if (intent.Status != PlatformPaymentIntentStatus.PendingVerification)
-            throw new BadRequestException("Only pending platform payment intents can be verified.");
-
-        if (intent.ServiceOrder.Status != ServiceOrderStatus.ProviderCompleted)
-            throw new BadRequestException("Platform payment can be verified only while the order is provider-completed.");
-
-        if (intent.ExpiresAt <= DateTime.UtcNow)
-            throw new BadRequestException("Platform payment intent has expired.");
-
-        if (await context.ServiceOrderPayments.AnyAsync(p => p.ServiceOrderId == intent.ServiceOrderId))
-            throw new BadRequestException("Payment is already recorded for this order.");
-
-        intent.Status = PlatformPaymentIntentStatus.Verified;
-        intent.GatewayPaymentId = gatewayPaymentId;
-        intent.VerificationNotes = NormalizeOptional(dto.VerificationNotes, 1000);
-        intent.VerifiedByUserId = adminId;
-        intent.VerifiedAt = DateTime.UtcNow;
-        intent.UpdatedAt = DateTime.UtcNow;
-
-        var payment = new ServiceOrderPayment
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            ServiceOrderId = intent.ServiceOrderId,
-            PlatformPaymentIntentId = intent.Id,
-            CustomerId = intent.CustomerId,
-            ProviderId = intent.ProviderId,
-            Amount = intent.Amount,
-            PlatformFeeAmount = intent.PlatformFeeAmount,
-            ProviderPayoutAmount = intent.ProviderPayoutAmount,
-            Method = PaymentMethod.Platform,
-            Status = PaymentStatus.Held,
-            ReferenceNumber = gatewayPaymentId,
-            Notes = intent.VerificationNotes,
-            RecordedByUserId = adminId,
-            RecordedAt = DateTime.UtcNow
-        };
+            var gatewayPaymentId = NormalizeRequired(dto.GatewayPaymentId, 200, "Gateway payment id");
 
-        context.ServiceOrderPayments.Add(payment);
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            intent.ServiceOrder,
-            adminId,
-            "Admin",
-            "PlatformPaymentVerified",
-            null,
-            payment.Status.ToString(),
-            $"Platform payment {gatewayPaymentId} verified and held.");
-        await notificationService.NotifyPlatformPaymentVerifiedAsync(payment.Id);
+            var intent = await context.PlatformPaymentIntents
+                .Include(i => i.ServiceOrder)
+                .FirstOrDefaultAsync(i => i.Id == intentId)
+                ?? throw new NotFoundException("Platform payment intent not found.");
 
-        return ToPaymentDto(payment);
+            if (intent.Status != PlatformPaymentIntentStatus.PendingVerification)
+                throw new BadRequestException("Only pending platform payment intents can be verified.");
+
+            if (intent.ServiceOrder.Status != ServiceOrderStatus.ProviderCompleted)
+                throw new BadRequestException("Platform payment can be verified only while the order is provider-completed.");
+
+            if (intent.ExpiresAt <= DateTime.UtcNow)
+                throw new BadRequestException("Platform payment intent has expired.");
+
+            if (await context.ServiceOrderPayments.AnyAsync(p => p.ServiceOrderId == intent.ServiceOrderId))
+                throw new BadRequestException("Payment is already recorded for this order.");
+
+            intent.Status = PlatformPaymentIntentStatus.Verified;
+            intent.GatewayPaymentId = gatewayPaymentId;
+            intent.VerificationNotes = NormalizeOptional(dto.VerificationNotes, 1000);
+            intent.VerifiedByUserId = adminId;
+            intent.VerifiedAt = DateTime.UtcNow;
+            intent.UpdatedAt = DateTime.UtcNow;
+
+            var payment = new ServiceOrderPayment
+            {
+                ServiceOrderId = intent.ServiceOrderId,
+                PlatformPaymentIntentId = intent.Id,
+                CustomerId = intent.CustomerId,
+                ProviderId = intent.ProviderId,
+                Amount = intent.Amount,
+                PlatformFeeAmount = intent.PlatformFeeAmount,
+                ProviderPayoutAmount = intent.ProviderPayoutAmount,
+                Method = PaymentMethod.Platform,
+                Status = PaymentStatus.Held,
+                ReferenceNumber = gatewayPaymentId,
+                Notes = intent.VerificationNotes,
+                RecordedByUserId = adminId,
+                RecordedAt = DateTime.UtcNow
+            };
+
+            context.ServiceOrderPayments.Add(payment);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                intent.ServiceOrder,
+                adminId,
+                "Admin",
+                "PlatformPaymentVerified",
+                null,
+                payment.Status.ToString(),
+                $"Platform payment {gatewayPaymentId} verified and held.");
+            await notificationService.NotifyPlatformPaymentVerifiedAsync(payment.Id);
+
+            return ToPaymentDto(payment);
+        });
     }
 
     public async Task<ProviderPayoutDto?> GetPayoutForOrderAsync(Guid orderId, string userId)
@@ -181,47 +188,50 @@ public sealed class MarketplaceEconomicsService(
 
     public async Task<ServiceOrderDisputeDto> CreateDisputeAsync(Guid orderId, string userId, CreateServiceOrderDisputeDto dto)
     {
-        var order = await GetParticipantOrderAsync(orderId, userId, tracking: true);
-        var payment = await context.ServiceOrderPayments
-            .FirstOrDefaultAsync(p => p.ServiceOrderId == order.Id)
-            ?? throw new BadRequestException("A recorded payment is required before opening a dispute.");
-
-        if (payment.Status != PaymentStatus.Held)
-            throw new BadRequestException("Disputes can be opened only while payment is held.");
-
-        var hasOpenDispute = await context.ServiceOrderDisputes.AnyAsync(d =>
-            d.ServiceOrderId == order.Id &&
-            d.Status != ServiceOrderDisputeStatus.RefundedToCustomer &&
-            d.Status != ServiceOrderDisputeStatus.ReleasedToProvider &&
-            d.Status != ServiceOrderDisputeStatus.Rejected &&
-            d.Status != ServiceOrderDisputeStatus.Cancelled);
-
-        if (hasOpenDispute)
-            throw new BadRequestException("An active dispute already exists for this order.");
-
-        var dispute = new ServiceOrderDispute
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            ServiceOrderId = order.Id,
-            ServiceOrderPaymentId = payment.Id,
-            RaisedByUserId = userId,
-            AgainstUserId = order.CustomerId == userId ? order.ProviderId : order.CustomerId,
-            Reason = NormalizeRequired(dto.Reason, 1000, "Dispute reason"),
-            Status = ServiceOrderDisputeStatus.Open
-        };
+            var order = await GetParticipantOrderAsync(orderId, userId, tracking: true);
+            var payment = await context.ServiceOrderPayments
+                .FirstOrDefaultAsync(p => p.ServiceOrderId == order.Id)
+                ?? throw new BadRequestException("A recorded payment is required before opening a dispute.");
 
-        context.ServiceOrderDisputes.Add(dispute);
-        await context.SaveChangesAsync();
-        await auditService.RecordAsync(
-            order,
-            userId,
-            order.CustomerId == userId ? "Customer" : "Provider",
-            "ServiceOrderDisputeOpened",
-            null,
-            dispute.Status.ToString(),
-            dispute.Reason);
-        await notificationService.NotifyServiceOrderDisputeOpenedAsync(dispute.Id);
+            if (payment.Status != PaymentStatus.Held)
+                throw new BadRequestException("Disputes can be opened only while payment is held.");
 
-        return ToDto(dispute);
+            var hasOpenDispute = await context.ServiceOrderDisputes.AnyAsync(d =>
+                d.ServiceOrderId == order.Id &&
+                d.Status != ServiceOrderDisputeStatus.RefundedToCustomer &&
+                d.Status != ServiceOrderDisputeStatus.ReleasedToProvider &&
+                d.Status != ServiceOrderDisputeStatus.Rejected &&
+                d.Status != ServiceOrderDisputeStatus.Cancelled);
+
+            if (hasOpenDispute)
+                throw new BadRequestException("An active dispute already exists for this order.");
+
+            var dispute = new ServiceOrderDispute
+            {
+                ServiceOrderId = order.Id,
+                ServiceOrderPaymentId = payment.Id,
+                RaisedByUserId = userId,
+                AgainstUserId = order.CustomerId == userId ? order.ProviderId : order.CustomerId,
+                Reason = NormalizeRequired(dto.Reason, 1000, "Dispute reason"),
+                Status = ServiceOrderDisputeStatus.Open
+            };
+
+            context.ServiceOrderDisputes.Add(dispute);
+            await context.SaveChangesAsync();
+            await auditService.RecordAsync(
+                order,
+                userId,
+                order.CustomerId == userId ? "Customer" : "Provider",
+                "ServiceOrderDisputeOpened",
+                null,
+                dispute.Status.ToString(),
+                dispute.Reason);
+            await notificationService.NotifyServiceOrderDisputeOpenedAsync(dispute.Id);
+
+            return ToDto(dispute);
+        });
     }
 
     public async Task<List<ServiceOrderDisputeDto>> GetDisputesForOrderAsync(Guid orderId, string userId)
@@ -250,66 +260,69 @@ public sealed class MarketplaceEconomicsService(
 
     public async Task<ServiceOrderDisputeDto> ResolveDisputeAsync(Guid disputeId, string adminId, ResolveServiceOrderDisputeDto dto)
     {
-        var dispute = await context.ServiceOrderDisputes
-            .Include(d => d.ServiceOrder)
-            .ThenInclude(o => o.ServiceRequest)
-            .Include(d => d.ServiceOrderPayment)
-            .FirstOrDefaultAsync(d => d.Id == disputeId)
-            ?? throw new NotFoundException("Service order dispute not found.");
-
-        if (dispute.Status is ServiceOrderDisputeStatus.RefundedToCustomer or ServiceOrderDisputeStatus.ReleasedToProvider or ServiceOrderDisputeStatus.Rejected or ServiceOrderDisputeStatus.Cancelled)
-            throw new BadRequestException("Dispute is already resolved.");
-
-        var resolutionNotes = NormalizeRequired(dto.ResolutionNotes, 1000, "Resolution notes");
-        var payment = dispute.ServiceOrderPayment
-            ?? throw new BadRequestException("Dispute is not linked to a payment.");
-        ProviderPayout? payoutToNotify = null;
-
-        switch (dto.Status)
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            case ServiceOrderDisputeStatus.RefundedToCustomer:
-                if (payment.Status != PaymentStatus.Held)
-                    throw new BadRequestException("Only held payments can be refunded.");
-                payment.Status = PaymentStatus.Refunded;
-                payment.UpdatedAt = DateTime.UtcNow;
-                CloseOrderAsCancelled(dispute.ServiceOrder, adminId, resolutionNotes);
-                break;
-            case ServiceOrderDisputeStatus.ReleasedToProvider:
-                if (payment.Status != PaymentStatus.Held)
-                    throw new BadRequestException("Only held payments can be released.");
-                payment.Status = PaymentStatus.Released;
-                payment.ReleasedAt = DateTime.UtcNow;
-                payment.UpdatedAt = DateTime.UtcNow;
-                CloseOrderAsCompleted(dispute.ServiceOrder);
-                payoutToNotify = await EnsureProviderPayoutAsync(payment);
-                break;
-            case ServiceOrderDisputeStatus.Rejected:
-                break;
-            default:
-                throw new BadRequestException("Dispute resolution status must refund customer, release provider, or reject dispute.");
-        }
+            var dispute = await context.ServiceOrderDisputes
+                .Include(d => d.ServiceOrder)
+                .ThenInclude(o => o.ServiceRequest)
+                .Include(d => d.ServiceOrderPayment)
+                .FirstOrDefaultAsync(d => d.Id == disputeId)
+                ?? throw new NotFoundException("Service order dispute not found.");
 
-        dispute.Status = dto.Status;
-        dispute.ResolutionNotes = resolutionNotes;
-        dispute.ResolvedByUserId = adminId;
-        dispute.ResolvedAt = DateTime.UtcNow;
-        dispute.UpdatedAt = DateTime.UtcNow;
+            if (dispute.Status is ServiceOrderDisputeStatus.RefundedToCustomer or ServiceOrderDisputeStatus.ReleasedToProvider or ServiceOrderDisputeStatus.Rejected or ServiceOrderDisputeStatus.Cancelled)
+                throw new BadRequestException("Dispute is already resolved.");
 
-        await context.SaveChangesAsync();
-        if (payoutToNotify != null)
-            await notificationService.NotifyProviderPayoutCreatedAsync(payoutToNotify.Id);
+            var resolutionNotes = NormalizeRequired(dto.ResolutionNotes, 1000, "Resolution notes");
+            var payment = dispute.ServiceOrderPayment
+                ?? throw new BadRequestException("Dispute is not linked to a payment.");
+            ProviderPayout? payoutToNotify = null;
 
-        await auditService.RecordAsync(
-            dispute.ServiceOrder,
-            adminId,
-            "Admin",
-            "ServiceOrderDisputeResolved",
-            null,
-            dispute.Status.ToString(),
-            resolutionNotes);
-        await notificationService.NotifyServiceOrderDisputeResolvedAsync(dispute.Id);
+            switch (dto.Status)
+            {
+                case ServiceOrderDisputeStatus.RefundedToCustomer:
+                    if (payment.Status != PaymentStatus.Held)
+                        throw new BadRequestException("Only held payments can be refunded.");
+                    payment.Status = PaymentStatus.Refunded;
+                    payment.UpdatedAt = DateTime.UtcNow;
+                    CloseOrderAsCancelled(dispute.ServiceOrder, adminId, resolutionNotes);
+                    break;
+                case ServiceOrderDisputeStatus.ReleasedToProvider:
+                    if (payment.Status != PaymentStatus.Held)
+                        throw new BadRequestException("Only held payments can be released.");
+                    payment.Status = PaymentStatus.Released;
+                    payment.ReleasedAt = DateTime.UtcNow;
+                    payment.UpdatedAt = DateTime.UtcNow;
+                    CloseOrderAsCompleted(dispute.ServiceOrder);
+                    payoutToNotify = await EnsureProviderPayoutAsync(payment);
+                    break;
+                case ServiceOrderDisputeStatus.Rejected:
+                    break;
+                default:
+                    throw new BadRequestException("Dispute resolution status must refund customer, release provider, or reject dispute.");
+            }
 
-        return ToDto(dispute);
+            dispute.Status = dto.Status;
+            dispute.ResolutionNotes = resolutionNotes;
+            dispute.ResolvedByUserId = adminId;
+            dispute.ResolvedAt = DateTime.UtcNow;
+            dispute.UpdatedAt = DateTime.UtcNow;
+
+            await context.SaveChangesAsync();
+            if (payoutToNotify != null)
+                await notificationService.NotifyProviderPayoutCreatedAsync(payoutToNotify.Id);
+
+            await auditService.RecordAsync(
+                dispute.ServiceOrder,
+                adminId,
+                "Admin",
+                "ServiceOrderDisputeResolved",
+                null,
+                dispute.Status.ToString(),
+                resolutionNotes);
+            await notificationService.NotifyServiceOrderDisputeResolvedAsync(dispute.Id);
+
+            return ToDto(dispute);
+        });
     }
 
     private async Task<ProviderPayout> EnsureProviderPayoutAsync(ServiceOrderPayment payment)

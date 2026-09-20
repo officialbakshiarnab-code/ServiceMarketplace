@@ -1,0 +1,586 @@
+@using Microsoft.Extensions.Logging
+@using ServiceMarketplace.UI.Shared.Requests
+@inject AuthApiClient AuthApi
+@inject IRegistrationConversationService Conversation
+@inject IRegistrationPayloadMapper PayloadMapper
+@inject IRegistrationIntentStorage IntentStorage
+@inject ISpeechInputService SpeechInput
+@inject IRegistrationLocationService LocationService
+@inject ServiceCatalogApiClient CatalogClient
+@inject NavigationManager Nav
+@inject ILogger<RegistrationBot> Logger
+
+<div class="registration-bot">
+    <header class="bot-topbar">
+        <div>
+            <p class="eyebrow">@RegistrationTextCatalog.Get("welcome.eyebrow", _state.LanguageCode)</p>
+            <h1>@RegistrationTextCatalog.Get("welcome.title", _state.LanguageCode)</h1>
+        </div>
+        <button type="button" class="btn btn-link bot-close" @onclick="GoToLogin" disabled="@_busy">@RegistrationTextCatalog.Get("welcome.login", _state.LanguageCode)</button>
+    </header>
+
+    <div class="registration-language">
+        <label for="registration-language">@RegistrationTextCatalog.Get("language.label", _state.LanguageCode)</label>
+        <select id="registration-language" class="form-select" value="@_state.LanguageCode" @onchange="ChangeLanguage" disabled="@_busy">
+            @foreach (var language in RegistrationLanguageCatalog.Supported)
+            {
+                <option value="@language.Code">@language.NativeDisplayName</option>
+            }
+        </select>
+    </div>
+
+    <nav class="bot-progress" aria-label="@RegistrationTextCatalog.Get("progress.aria", _state.LanguageCode)">
+        @foreach (var item in Conversation.GetProgress(_state))
+        {
+            <span class="@GetProgressClass(item)">@item.Label</span>
+        }
+    </nav>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+
+    @if (_success)
+    {
+        <div class="alert alert-success" role="alert">@RegistrationTextCatalog.Get("success", _state.LanguageCode)</div>
+    }
+
+    <section class="bot-question" aria-live="polite">
+        <div class="question-copy">
+            <span>@RegistrationTextCatalog.GetStageLabel(_question.Stage, _state.LanguageCode)</span>
+            <h2>@RegistrationTextCatalog.GetQuestionPrompt(_question, _state.LanguageCode)</h2>
+            @if (!string.IsNullOrWhiteSpace(RegistrationTextCatalog.GetHelpText(_question, _state.LanguageCode)))
+            {
+                <p>@RegistrationTextCatalog.GetHelpText(_question, _state.LanguageCode)</p>
+            }
+        </div>
+
+        @if (_state.Conflicts.FirstOrDefault() is { } conflict)
+        {
+            <div class="alert alert-warning" role="alert">
+                <strong>@RegistrationTextCatalog.Get("conflict.choose", _state.LanguageCode)</strong>
+                <p class="mb-2">@RegistrationTextCatalog.GetConflictPrompt(conflict, _state.LanguageCode)</p>
+                <div class="option-list">
+                    @foreach (var candidate in conflict.CandidateValues)
+                    {
+                        <button type="button" class="btn btn-outline-secondary text-start" @onclick="() => ResolveConflict(candidate)" disabled="@_busy">@RegistrationTextCatalog.Get("button.use", _state.LanguageCode) @candidate</button>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_question.Type == RegistrationQuestionType.Review)
+        {
+            <div class="bot-review">
+                @foreach (var group in Conversation.GetReview(_state).GroupBy(i => i.Section))
+                {
+                    <section class="review-section">
+                        <h3>@RegistrationTextCatalog.GetReviewText(group.Key, _state.LanguageCode)</h3>
+                        @foreach (var item in group)
+                        {
+                            <div class="review-row">
+                                <span>@RegistrationTextCatalog.GetReviewText(item.Label, _state.LanguageCode)</span>
+                                <strong>@item.Value</strong>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => EditAnswer(item.EditQuestionKey)" disabled="@_busy">@RegistrationTextCatalog.Get("button.edit", _state.LanguageCode)</button>
+                            </div>
+                        }
+                    </section>
+                }
+            </div>
+        }
+        else if (_question.Type == RegistrationQuestionType.MultipleChoice)
+        {
+            <div class="option-grid">
+                @foreach (var option in _question.Options ?? [])
+                {
+                    <label class="@GetOptionClass(option)">
+                        <input type="checkbox"
+                               checked="@IsMultiSelected(option)"
+                               disabled="@(_busy || option.IsLocked)"
+                               @onchange="args => ToggleMultiOption(option, args)" />
+                        <strong>@RegistrationTextCatalog.GetOptionLabel(option, _state.LanguageCode)</strong>
+                        @if (!string.IsNullOrWhiteSpace(RegistrationTextCatalog.GetOptionDescription(option, _state.LanguageCode)))
+                        {
+                            <span>@RegistrationTextCatalog.GetOptionDescription(option, _state.LanguageCode)</span>
+                        }
+                    </label>
+                }
+            </div>
+            @if (_question.Key == RegistrationQuestionKeys.Intent)
+            {
+                <input class="form-control bot-input mt-3" placeholder="@RegistrationTextCatalog.Get("intent.describe", _state.LanguageCode)" @bind="_textAnswer" disabled="@_busy" />
+            }
+        }
+        else if (_question.Type == RegistrationQuestionType.SingleChoice)
+        {
+            @if (_question.Key == RegistrationQuestionKeys.ProviderCategory && (_question.Options?.Count ?? 0) > 6)
+            {
+                <input class="form-control mb-3" placeholder="@RegistrationTextCatalog.Get("category.search", _state.LanguageCode)" @bind="_optionFilter" disabled="@_busy" />
+            }
+
+            <div class="option-list">
+                @foreach (var option in GetVisibleOptions())
+                {
+                    <label class="@GetOptionClass(option)">
+                        <input type="radio"
+                               name="@_question.Key"
+                               value="@option.Value"
+                               checked="@string.Equals(_singleChoiceAnswer, option.Value, StringComparison.Ordinal)"
+                               disabled="@_busy"
+                               @onchange="() => _singleChoiceAnswer = option.Value" />
+                        <strong>@RegistrationTextCatalog.GetOptionLabel(option, _state.LanguageCode)</strong>
+                        @if (!string.IsNullOrWhiteSpace(RegistrationTextCatalog.GetOptionDescription(option, _state.LanguageCode)))
+                        {
+                            <span>@RegistrationTextCatalog.GetOptionDescription(option, _state.LanguageCode)</span>
+                        }
+                    </label>
+                }
+            </div>
+        }
+        else if (_question.Type == RegistrationQuestionType.Date)
+        {
+            <input type="date" class="form-control bot-input" @bind="_dateAnswer" disabled="@_busy" />
+        }
+        else if (_question.Type == RegistrationQuestionType.Number)
+        {
+            <input type="text" class="form-control bot-input" inputmode="numeric" @bind="_textAnswer" disabled="@_busy" />
+        }
+        else if (_question.Type == RegistrationQuestionType.Currency)
+        {
+            <input type="text" class="form-control bot-input" inputmode="decimal" @bind="_textAnswer" disabled="@_busy" />
+        }
+        else if (_question.Type == RegistrationQuestionType.TextArea)
+        {
+            <textarea class="form-control bot-textarea" @bind="_textAnswer" rows="4" disabled="@_busy"></textarea>
+        }
+        else if (_question.Type == RegistrationQuestionType.Password)
+        {
+            <div class="password-input">
+                <input type="@(_showPassword ? "text" : "password")" class="form-control bot-input" @bind="_textAnswer" disabled="@_busy" />
+                <button type="button" class="btn btn-outline-secondary" @onclick="TogglePasswordVisibility" disabled="@_busy">
+                    @(RegistrationTextCatalog.Get(_showPassword ? "button.hide" : "button.show", _state.LanguageCode))
+                </button>
+            </div>
+        }
+        else if (_question.Type == RegistrationQuestionType.Upload)
+        {
+            <div class="upload-box">
+                <InputFile OnChange="OnFileSelected" disabled="@_busy" />
+                <p>@(_fileAnswer == null ? RegistrationTextCatalog.Get("upload.none", _state.LanguageCode) : _fileAnswer.Name)</p>
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="SkipUpload" disabled="@_busy">@RegistrationTextCatalog.Get("button.skip", _state.LanguageCode)</button>
+            </div>
+        }
+        else
+        {
+            <input type="@GetInputType()" class="form-control bot-input" @bind="_textAnswer" disabled="@_busy" />
+        }
+
+        @if (CanShowVoiceControl())
+        {
+            <div class="voice-row">
+                <button type="button" class="btn btn-outline-secondary" @onclick="CaptureVoiceAsync" disabled="@(_busy || !SpeechInput.IsAvailable)">
+                    @RegistrationTextCatalog.Get("button.speak", _state.LanguageCode)
+                </button>
+                @if (!SpeechInput.IsAvailable)
+                {
+                    <span>@RegistrationTextCatalog.Get("voice.unavailable", _state.LanguageCode)</span>
+                }
+            </div>
+        }
+
+        @if (CanShowLocationControl())
+        {
+            <div class="location-row">
+                <button type="button" class="btn btn-outline-secondary" @onclick="UseCurrentLocationAsync" disabled="@(_busy || _locating || !LocationService.IsAvailable)">
+                    @(_locating ? RegistrationTextCatalog.Get("button.locating", _state.LanguageCode) : RegistrationTextCatalog.Get("button.use-location", _state.LanguageCode))
+                </button>
+                @if (!LocationService.IsAvailable)
+                {
+                    <span>@RegistrationTextCatalog.Get("location.unavailable", _state.LanguageCode)</span>
+                }
+                else if (!string.IsNullOrWhiteSpace(_currentLocationMapUrl))
+                {
+                    <a href="@_currentLocationMapUrl" target="_blank" rel="noopener noreferrer">@RegistrationTextCatalog.Get("button.open-map", _state.LanguageCode)</a>
+                }
+            </div>
+        }
+    </section>
+
+    <div class="bot-actions">
+        <button type="button" class="btn btn-outline-secondary" @onclick="GoBack" disabled="@(_busy || !_state.QuestionHistory.Any())">@RegistrationTextCatalog.Get("button.back", _state.LanguageCode)</button>
+        @if (_question.Type == RegistrationQuestionType.Review)
+        {
+            <button type="button" class="btn btn-primary" @onclick="SubmitAsync" disabled="@_busy">
+                @(_busy ? RegistrationTextCatalog.Get("button.creating", _state.LanguageCode) : RegistrationTextCatalog.Get("button.create", _state.LanguageCode))
+            </button>
+        }
+        else
+        {
+            <button type="button" class="btn btn-primary" @onclick="Continue" disabled="@_busy">@RegistrationTextCatalog.Get("button.continue", _state.LanguageCode)</button>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly RegistrationConversationState _state = new();
+    private readonly SubmissionGuard _submissionGuard = new();
+    private RegistrationQuestion _question = default!;
+    private string? _error;
+    private bool _busy;
+    private bool _success;
+    private bool _showPassword;
+    private bool _locating;
+    private string _textAnswer = string.Empty;
+    private string _singleChoiceAnswer = string.Empty;
+    private HashSet<string> _multiAnswers = [];
+    private DateTime _dateAnswer = DateTime.Today.AddYears(-25);
+    private int? _intAnswer;
+    private decimal? _decimalAnswer;
+    private IBrowserFile? _fileAnswer;
+    private string _optionFilter = string.Empty;
+    private string? _currentLocationMapUrl;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _question = Conversation.GetCurrentQuestion(_state);
+
+        try
+        {
+            _state.ServiceCategories = await CatalogClient.GetCategoriesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[RegistrationBot] Service categories unavailable; provider category will fall back to typed input.");
+        }
+
+        LoadAnswerForCurrentQuestion();
+    }
+
+    private void Continue()
+    {
+        _error = null;
+        var result = Conversation.ApplyAnswer(_state, BuildAnswer());
+        if (!result.Succeeded)
+        {
+            _error = RegistrationTextCatalog.LocalizeError(result.Error, _state.LanguageCode);
+            return;
+        }
+
+        _question = Conversation.GetCurrentQuestion(_state);
+        LoadAnswerForCurrentQuestion();
+    }
+
+    private void ChangeLanguage(ChangeEventArgs args)
+    {
+        var requested = args.Value?.ToString();
+        _state.LanguageCode = RegistrationLanguageCatalog.Get(requested).Code;
+        _question = Conversation.GetCurrentQuestion(_state);
+    }
+
+    private void ResolveConflict(string value)
+    {
+        _error = null;
+        var result = Conversation.ResolveConflict(_state, value);
+        if (!result.Succeeded)
+        {
+            _error = RegistrationTextCatalog.LocalizeError(result.Error, _state.LanguageCode);
+            return;
+        }
+
+        _question = Conversation.GetCurrentQuestion(_state);
+        LoadAnswerForCurrentQuestion();
+    }
+
+    private void GoBack()
+    {
+        _error = null;
+        var result = Conversation.GoBack(_state);
+        if (!result.Succeeded)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _question = Conversation.GetCurrentQuestion(_state);
+        LoadAnswerForCurrentQuestion();
+    }
+
+    private void EditAnswer(string questionKey)
+    {
+        _error = null;
+        Conversation.GoToQuestion(_state, questionKey);
+        _question = Conversation.GetCurrentQuestion(_state);
+        LoadAnswerForCurrentQuestion();
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!await _submissionGuard.IsAllowedAsync("register"))
+        {
+            Logger.LogWarning("[RegistrationBot] Duplicate registration submission blocked.");
+            return;
+        }
+
+        _error = null;
+        _success = false;
+        _busy = true;
+
+        try
+        {
+            var request = PayloadMapper.BuildRequest(_state);
+            Logger.LogInformation(
+                "[RegistrationBot] Submitting registration for {Email}. ProviderIntent: {ProviderIntent}, SellerIntent: {SellerIntent}",
+                request.Email,
+                _state.WantsProvider,
+                _state.WantsSeller);
+
+            var result = await AuthApi.RegisterAsync(request, _state.GovernmentIdImage);
+            if (!result.Success)
+            {
+                _error = RegistrationTextCatalog.LocalizeError(result.Error ?? RegistrationTextCatalog.Get("error.registration", _state.LanguageCode), _state.LanguageCode);
+                await _submissionGuard.ResetAsync("register");
+                return;
+            }
+
+            await IntentStorage.SaveAsync(PayloadMapper.BuildIntent(_state));
+            _success = true;
+            await Task.Delay(1200);
+            Nav.NavigateTo("/login");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private RegistrationAnswer BuildAnswer()
+    {
+        return _question.Type switch
+        {
+            RegistrationQuestionType.MultipleChoice when !string.IsNullOrWhiteSpace(_textAnswer) => new RegistrationAnswer(_question.Key, Value: _textAnswer),
+            RegistrationQuestionType.MultipleChoice => new RegistrationAnswer(_question.Key, Values: _multiAnswers.ToList()),
+            RegistrationQuestionType.SingleChoice when _question.Key == RegistrationQuestionKeys.RequestedSeats =>
+                new RegistrationAnswer(_question.Key, Value: _singleChoiceAnswer, IntValue: int.TryParse(_singleChoiceAnswer, out var seats) ? seats : null),
+            RegistrationQuestionType.SingleChoice => new RegistrationAnswer(_question.Key, Value: _singleChoiceAnswer),
+            RegistrationQuestionType.Date => new RegistrationAnswer(_question.Key, DateValue: _dateAnswer),
+            RegistrationQuestionType.Number => new RegistrationAnswer(_question.Key, Value: _textAnswer, IntValue: _intAnswer),
+            RegistrationQuestionType.Currency => new RegistrationAnswer(_question.Key, Value: _textAnswer, DecimalValue: _decimalAnswer),
+            RegistrationQuestionType.Upload => new RegistrationAnswer(_question.Key, File: _fileAnswer),
+            _ => new RegistrationAnswer(_question.Key, Value: _textAnswer)
+        };
+    }
+
+    private void LoadAnswerForCurrentQuestion()
+    {
+        _showPassword = false;
+        _optionFilter = string.Empty;
+        _textAnswer = GetTextValue(_question.Key);
+        _dateAnswer = _state.DateOfBirth == default ? DateTime.Today.AddYears(-25) : _state.DateOfBirth;
+        _intAnswer = GetIntValue(_question.Key);
+        _decimalAnswer = _question.Key == RegistrationQuestionKeys.ProviderRate && _state.ProviderRate > 0 ? _state.ProviderRate : null;
+        _singleChoiceAnswer = GetSingleChoiceValue(_question);
+        _multiAnswers = GetMultiChoiceValues();
+        _fileAnswer = _state.GovernmentIdImage;
+    }
+
+    private string GetTextValue(string key)
+    {
+        return key switch
+        {
+            RegistrationQuestionKeys.FirstName => _state.FirstName,
+            RegistrationQuestionKeys.LastName => _state.LastName,
+            RegistrationQuestionKeys.PhoneNumber => _state.PhoneNumber,
+            RegistrationQuestionKeys.Email => _state.Email,
+            RegistrationQuestionKeys.Password => _state.Password,
+            RegistrationQuestionKeys.ConfirmPassword => _state.ConfirmPassword,
+            RegistrationQuestionKeys.ProviderCategory => _state.ProviderPrimaryCategory,
+            RegistrationQuestionKeys.ProviderProfession => _state.ProviderProfession,
+            RegistrationQuestionKeys.ProviderSkills => _state.ProviderSkills,
+            RegistrationQuestionKeys.ProviderZone => _state.ProviderServiceAreaZone,
+            RegistrationQuestionKeys.ProviderCity => _state.ProviderServiceAreaCity,
+            RegistrationQuestionKeys.ProviderState => _state.ProviderServiceAreaState,
+            RegistrationQuestionKeys.ProviderAvailability => _state.ProviderAvailability,
+            RegistrationQuestionKeys.ProviderLanguages => _state.ProviderLanguages,
+            RegistrationQuestionKeys.ProviderYears => _state.ProviderYearsOfExperience?.ToString() ?? string.Empty,
+            RegistrationQuestionKeys.ProviderRate => _state.ProviderRate > 0 ? _state.ProviderRate.ToString("0.##") : string.Empty,
+            RegistrationQuestionKeys.SellerStoreName => _state.SellerStoreName,
+            RegistrationQuestionKeys.SellerBusinessName => _state.SellerBusinessName,
+            RegistrationQuestionKeys.SellerGstin => _state.SellerGstin,
+            RegistrationQuestionKeys.SellerProductCategories => _state.SellerProductCategories,
+            RegistrationQuestionKeys.SellerPickupAddress => _state.SellerPickupAddress,
+            RegistrationQuestionKeys.SellerCity => _state.SellerCity,
+            RegistrationQuestionKeys.SellerState => _state.SellerState,
+            RegistrationQuestionKeys.SellerDescription => _state.SellerDescription,
+            RegistrationQuestionKeys.BusinessLegalName => _state.BusinessLegalName,
+            RegistrationQuestionKeys.BusinessTradingName => _state.BusinessTradingName,
+            RegistrationQuestionKeys.BusinessGstin => _state.BusinessGstin,
+            RegistrationQuestionKeys.BusinessWebsite => _state.BusinessWebsiteOrDomain,
+            RegistrationQuestionKeys.BusinessRegisteredAddress => _state.BusinessRegisteredAddress,
+            RegistrationQuestionKeys.BusinessOperatingAddress => _state.BusinessOperatingAddress,
+            RegistrationQuestionKeys.RequestedSeats => _state.RequestedSeatLimit.ToString(),
+            _ => string.Empty
+        };
+    }
+
+    private int? GetIntValue(string key)
+    {
+        return key switch
+        {
+            RegistrationQuestionKeys.ProviderYears => _state.ProviderYearsOfExperience,
+            RegistrationQuestionKeys.RequestedSeats => _state.RequestedSeatLimit,
+            _ => null
+        };
+    }
+
+    private string GetSingleChoiceValue(RegistrationQuestion question)
+    {
+        return question.Key switch
+        {
+            RegistrationQuestionKeys.ProviderType => _state.ProviderType,
+            RegistrationQuestionKeys.ProviderCategory when question.Type == RegistrationQuestionType.SingleChoice =>
+                _state.ServiceCategories.FirstOrDefault(c => string.Equals(c.Name, _state.ProviderPrimaryCategory, StringComparison.OrdinalIgnoreCase))?.Id.ToString() ?? string.Empty,
+            RegistrationQuestionKeys.ProviderPricing => _state.ProviderPricingType,
+            RegistrationQuestionKeys.SellerConditionFocus => _state.SellerProductConditionFocus,
+            RegistrationQuestionKeys.BusinessType => _state.BusinessType,
+            RegistrationQuestionKeys.RequestedSeats => _state.RequestedSeatLimit.ToString(),
+            _ => string.Empty
+        };
+    }
+
+    private HashSet<string> GetMultiChoiceValues()
+    {
+        var values = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "RequestServices",
+            "BuyProducts"
+        };
+
+        if (_state.WantsProvider)
+            values.Add("ProvideServices");
+        if (_state.WantsSeller)
+            values.Add("SellProducts");
+
+        return values;
+    }
+
+    private IEnumerable<RegistrationOption> GetVisibleOptions()
+    {
+        var options = _question.Options ?? [];
+        if (string.IsNullOrWhiteSpace(_optionFilter))
+            return options;
+
+        return options.Where(o =>
+            o.Label.Contains(_optionFilter, StringComparison.OrdinalIgnoreCase) ||
+            (o.Description?.Contains(_optionFilter, StringComparison.OrdinalIgnoreCase) ?? false));
+    }
+
+    private void ToggleMultiOption(RegistrationOption option, ChangeEventArgs args)
+    {
+        if (option.IsLocked)
+            return;
+
+        var selected = args.Value is bool boolValue && boolValue;
+        if (selected)
+            _multiAnswers.Add(option.Value);
+        else
+            _multiAnswers.Remove(option.Value);
+    }
+
+    private bool IsMultiSelected(RegistrationOption option)
+    {
+        return option.IsLocked || _multiAnswers.Contains(option.Value);
+    }
+
+    private string GetOptionClass(RegistrationOption option)
+    {
+        return IsMultiSelected(option) || string.Equals(_singleChoiceAnswer, option.Value, StringComparison.Ordinal)
+            ? "bot-option selected"
+            : "bot-option";
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs args)
+    {
+        _fileAnswer = args.FileCount > 0 ? args.File : null;
+    }
+
+    private void SkipUpload()
+    {
+        _fileAnswer = null;
+        Continue();
+    }
+
+    private async Task CaptureVoiceAsync()
+    {
+        var result = await SpeechInput.CaptureAsync();
+        if (!result.Succeeded)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _textAnswer = result.Transcript ?? string.Empty;
+    }
+
+    private bool CanShowVoiceControl()
+    {
+        return _question.InputModes.Contains(RegistrationInputMode.Voice) &&
+            _question.Type != RegistrationQuestionType.Password;
+    }
+
+    private bool CanShowLocationControl()
+    {
+        return _question.Key is RegistrationQuestionKeys.ProviderZone
+            or RegistrationQuestionKeys.SellerPickupAddress
+            or RegistrationQuestionKeys.BusinessRegisteredAddress
+            or RegistrationQuestionKeys.BusinessOperatingAddress;
+    }
+
+    private async Task UseCurrentLocationAsync()
+    {
+        _error = null;
+        _locating = true;
+
+        try
+        {
+            var result = await LocationService.GetCurrentLocationAsync();
+            if (!result.Succeeded)
+            {
+                _error = RegistrationTextCatalog.LocalizeError(result.Error ?? RegistrationTextCatalog.Get("error.location", _state.LanguageCode), _state.LanguageCode);
+                return;
+            }
+
+            _textAnswer = result.ToAddressText();
+            _currentLocationMapUrl = result.MapUrl;
+            _state.CurrentLocationLatitude = result.Latitude;
+            _state.CurrentLocationLongitude = result.Longitude;
+            _state.CurrentLocationAccuracyMeters = result.AccuracyMeters;
+            _state.CurrentLocationUsed = true;
+        }
+        finally
+        {
+            _locating = false;
+        }
+    }
+
+    private string GetInputType()
+    {
+        return _question.Type switch
+        {
+            RegistrationQuestionType.Email => "email",
+            RegistrationQuestionType.Phone => "tel",
+            _ => "text"
+        };
+    }
+
+    private static string GetProgressClass(RegistrationProgressItem item)
+    {
+        if (item.IsActive)
+            return "active";
+        return item.IsComplete ? "complete" : string.Empty;
+    }
+
+    private void TogglePasswordVisibility() => _showPassword = !_showPassword;
+
+    private void GoToLogin() => Nav.NavigateTo("/login");
+}

@@ -81,32 +81,35 @@ public sealed class ProductListingService(AppDbContext context) : IProductListin
 
     public async Task<ProductListingDto> UpdateAsync(Guid listingId, string sellerId, UpsertProductListingDto dto)
     {
-        var sellerProfile = await EnsureApprovedSellerAsync(sellerId);
-        await ValidateListingAsync(dto);
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            var sellerProfile = await EnsureApprovedSellerAsync(sellerId);
+            await ValidateListingAsync(dto);
 
-        var listing = await context.ProductListings
-            .FirstOrDefaultAsync(p => p.Id == listingId && p.SellerId == sellerProfile.UserId)
-            ?? throw new NotFoundException("Product listing not found.");
+            var listing = await context.LockProductListing(listingId)
+                .FirstOrDefaultAsync(p => p.Id == listingId && p.SellerId == sellerProfile.UserId)
+                ?? throw new NotFoundException("Product listing not found.");
 
-        listing.ProductCategoryId = dto.ProductCategoryId;
-        listing.ServiceZoneId = dto.ServiceZoneId;
-        listing.Title = NormalizeRequired(dto.Title, 150, "Product title");
-        listing.Description = NormalizeRequired(dto.Description, 1000, "Product description");
-        listing.Price = dto.Price;
-        listing.StockQuantity = dto.StockQuantity;
-        listing.ImageUrl = NormalizeOptional(dto.ImageUrl, 500);
-        listing.Condition = dto.Condition;
-        listing.ConditionNotes = NormalizeOptional(dto.ConditionNotes, 1000);
-        listing.InspectionChecklist = NormalizeOptional(dto.InspectionChecklist, 2000);
-        listing.PurchaseYear = dto.PurchaseYear;
-        listing.HasOriginalBill = dto.HasOriginalBill;
-        listing.HasWarranty = dto.HasWarranty;
-        listing.Status = dto.IsActive ? ProductListingStatus.Active : ProductListingStatus.Inactive;
-        listing.UpdatedAt = DateTime.UtcNow;
+            listing.ProductCategoryId = dto.ProductCategoryId;
+            listing.ServiceZoneId = dto.ServiceZoneId;
+            listing.Title = NormalizeRequired(dto.Title, 150, "Product title");
+            listing.Description = NormalizeRequired(dto.Description, 1000, "Product description");
+            listing.Price = dto.Price;
+            listing.StockQuantity = dto.StockQuantity;
+            listing.ImageUrl = NormalizeOptional(dto.ImageUrl, 500);
+            listing.Condition = dto.Condition;
+            listing.ConditionNotes = NormalizeOptional(dto.ConditionNotes, 1000);
+            listing.InspectionChecklist = NormalizeOptional(dto.InspectionChecklist, 2000);
+            listing.PurchaseYear = dto.PurchaseYear;
+            listing.HasOriginalBill = dto.HasOriginalBill;
+            listing.HasWarranty = dto.HasWarranty;
+            listing.Status = dto.IsActive ? ProductListingStatus.Active : ProductListingStatus.Inactive;
+            listing.UpdatedAt = DateTime.UtcNow;
 
-        await context.SaveChangesAsync();
+            await context.SaveChangesAsync();
 
-        return await GetDtoByIdAsync(listing.Id);
+            return await GetDtoByIdAsync(listing.Id);
+        });
     }
 
     private async Task<ProductListingDto> GetDtoByIdAsync(Guid listingId)

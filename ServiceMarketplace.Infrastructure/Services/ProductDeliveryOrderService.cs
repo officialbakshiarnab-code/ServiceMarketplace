@@ -14,68 +14,71 @@ public sealed class ProductDeliveryOrderService(
 {
     public async Task<ProductDeliveryOrderDto> CreateAsync(string buyerId, CreateProductDeliveryOrderDto dto)
     {
-        if (string.IsNullOrWhiteSpace(buyerId))
-            throw new ForbiddenException("Product buyer access is required.");
-
-        ValidateCreateDto(dto);
-
-        var listing = await context.ProductListings
-            .Include(p => p.SellerProfile)
-            .Include(p => p.ProductCategory)
-            .FirstOrDefaultAsync(p => p.Id == dto.ProductListingId)
-            ?? throw new NotFoundException("Product listing not found.");
-
-        if (listing.Status != ProductListingStatus.Active ||
-            listing.StockQuantity <= 0 ||
-            !listing.ProductCategory.IsActive ||
-            listing.SellerProfile.Status != SellerApplicationStatus.Approved)
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            throw new BadRequestException("Selected product is not available for delivery order.");
-        }
+            if (string.IsNullOrWhiteSpace(buyerId))
+                throw new ForbiddenException("Product buyer access is required.");
 
-        if (Guid.TryParse(buyerId, out var buyerGuid) && buyerGuid == listing.SellerId)
-            throw new BadRequestException("Sellers cannot order their own products.");
+            ValidateCreateDto(dto);
 
-        if (dto.Quantity > listing.StockQuantity)
-            throw new BadRequestException("Requested quantity is greater than available stock.");
+            var listing = await context.LockProductListing(dto.ProductListingId)
+                .Include(p => p.SellerProfile)
+                .Include(p => p.ProductCategory)
+                .FirstOrDefaultAsync(p => p.Id == dto.ProductListingId)
+                ?? throw new NotFoundException("Product listing not found.");
 
-        if (dto.ServiceZoneId.HasValue)
-        {
-            var zoneExists = await context.ServiceZones
-                .AsNoTracking()
-                .AnyAsync(z => z.Id == dto.ServiceZoneId.Value && z.IsActive);
+            if (listing.Status != ProductListingStatus.Active ||
+                listing.StockQuantity <= 0 ||
+                !listing.ProductCategory.IsActive ||
+                listing.SellerProfile.Status != SellerApplicationStatus.Approved)
+            {
+                throw new BadRequestException("Selected product is not available for delivery order.");
+            }
 
-            if (!zoneExists)
-                throw new BadRequestException("Selected delivery zone is not available.");
-        }
+            if (Guid.TryParse(buyerId, out var buyerGuid) && buyerGuid == listing.SellerId)
+                throw new BadRequestException("Sellers cannot order their own products.");
 
-        var order = new ProductDeliveryOrder
-        {
-            ProductListingId = listing.Id,
-            SellerId = listing.SellerId,
-            BuyerId = buyerId,
-            Quantity = dto.Quantity,
-            UnitPrice = listing.Price,
-            TotalPrice = listing.Price * dto.Quantity,
-            Status = ProductDeliveryStatus.PendingSellerConfirmation,
-            DeliveryRecipientName = NormalizeRequired(dto.DeliveryRecipientName, 150, "Delivery recipient name"),
-            DeliveryPhoneNumber = NormalizeRequired(dto.DeliveryPhoneNumber, 20, "Delivery phone number"),
-            DeliveryAddress = NormalizeRequired(dto.DeliveryAddress, 500, "Delivery address"),
-            DeliveryCity = NormalizeRequired(dto.DeliveryCity, 100, "Delivery city"),
-            DeliveryState = NormalizeRequired(dto.DeliveryState, 100, "Delivery state"),
-            ServiceZoneId = dto.ServiceZoneId,
-            BuyerNotes = NormalizeOptional(dto.BuyerNotes, 1000),
-            CreatedAt = DateTime.UtcNow
-        };
+            if (dto.Quantity > listing.StockQuantity)
+                throw new BadRequestException("Requested quantity is greater than available stock.");
 
-        listing.StockQuantity -= dto.Quantity;
-        listing.UpdatedAt = DateTime.UtcNow;
+            if (dto.ServiceZoneId.HasValue)
+            {
+                var zoneExists = await context.ServiceZones
+                    .AsNoTracking()
+                    .AnyAsync(z => z.Id == dto.ServiceZoneId.Value && z.IsActive);
 
-        context.ProductDeliveryOrders.Add(order);
-        await context.SaveChangesAsync();
-        await notificationService.NotifyProductDeliveryOrderCreatedAsync(order.Id);
+                if (!zoneExists)
+                    throw new BadRequestException("Selected delivery zone is not available.");
+            }
 
-        return await GetDtoByIdAsync(order.Id);
+            var order = new ProductDeliveryOrder
+            {
+                ProductListingId = listing.Id,
+                SellerId = listing.SellerId,
+                BuyerId = buyerId,
+                Quantity = dto.Quantity,
+                UnitPrice = listing.Price,
+                TotalPrice = listing.Price * dto.Quantity,
+                Status = ProductDeliveryStatus.PendingSellerConfirmation,
+                DeliveryRecipientName = NormalizeRequired(dto.DeliveryRecipientName, 150, "Delivery recipient name"),
+                DeliveryPhoneNumber = NormalizeRequired(dto.DeliveryPhoneNumber, 20, "Delivery phone number"),
+                DeliveryAddress = NormalizeRequired(dto.DeliveryAddress, 500, "Delivery address"),
+                DeliveryCity = NormalizeRequired(dto.DeliveryCity, 100, "Delivery city"),
+                DeliveryState = NormalizeRequired(dto.DeliveryState, 100, "Delivery state"),
+                ServiceZoneId = dto.ServiceZoneId,
+                BuyerNotes = NormalizeOptional(dto.BuyerNotes, 1000),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            listing.StockQuantity -= dto.Quantity;
+            listing.UpdatedAt = DateTime.UtcNow;
+
+            context.ProductDeliveryOrders.Add(order);
+            await context.SaveChangesAsync();
+            await notificationService.NotifyProductDeliveryOrderCreatedAsync(order.Id);
+
+            return await GetDtoByIdAsync(order.Id);
+        });
     }
 
     public async Task<List<ProductDeliveryOrderDto>> GetMineAsBuyerAsync(string buyerId)
@@ -102,41 +105,49 @@ public sealed class ProductDeliveryOrderService(
 
     public async Task<ProductDeliveryOrderDto> UpdateSellerStatusAsync(Guid orderId, string sellerId, UpdateProductDeliveryStatusDto dto)
     {
-        if (!Guid.TryParse(sellerId, out var sellerGuid))
-            throw new ForbiddenException("Product seller access is required.");
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            if (!Guid.TryParse(sellerId, out var sellerGuid))
+                throw new ForbiddenException("Product seller access is required.");
 
-        if (!Enum.IsDefined(dto.Status))
-            throw new BadRequestException("Selected delivery status is not valid.");
+            if (!Enum.IsDefined(dto.Status))
+                throw new BadRequestException("Selected delivery status is not valid.");
 
-        var order = await context.ProductDeliveryOrders
-            .Include(o => o.ProductListing)
-            .FirstOrDefaultAsync(o => o.Id == orderId && o.SellerId == sellerGuid)
-            ?? throw new NotFoundException("Product delivery order not found.");
+            var order = await context.LockProductDeliveryOrder(orderId)
+                .FirstOrDefaultAsync(o => o.Id == orderId && o.SellerId == sellerGuid)
+                ?? throw new NotFoundException("Product delivery order not found.");
 
-        ApplySellerTransition(order, dto.Status, sellerId, dto.CancellationReason);
+            order.ProductListing = await context.LockProductListing(order.ProductListingId).SingleAsync();
 
-        await context.SaveChangesAsync();
-        await notificationService.NotifyProductDeliveryOrderStatusChangedAsync(order.Id);
+            ApplySellerTransition(order, dto.Status, sellerId, dto.CancellationReason);
 
-        return await GetDtoByIdAsync(order.Id);
+            await context.SaveChangesAsync();
+            await notificationService.NotifyProductDeliveryOrderStatusChangedAsync(order.Id);
+
+            return await GetDtoByIdAsync(order.Id);
+        });
     }
 
     public async Task<ProductDeliveryOrderDto> CancelAsBuyerAsync(Guid orderId, string buyerId, string? cancellationReason)
     {
-        var order = await context.ProductDeliveryOrders
-            .Include(o => o.ProductListing)
-            .FirstOrDefaultAsync(o => o.Id == orderId && o.BuyerId == buyerId)
-            ?? throw new NotFoundException("Product delivery order not found.");
+        return await context.ExecuteAtomicAsync(async () =>
+        {
+            var order = await context.LockProductDeliveryOrder(orderId)
+                .FirstOrDefaultAsync(o => o.Id == orderId && o.BuyerId == buyerId)
+                ?? throw new NotFoundException("Product delivery order not found.");
 
-        if (order.Status is not ProductDeliveryStatus.PendingSellerConfirmation and not ProductDeliveryStatus.Confirmed)
-            throw new BadRequestException("This product delivery order can no longer be cancelled by the buyer.");
+            if (order.Status is not ProductDeliveryStatus.PendingSellerConfirmation and not ProductDeliveryStatus.Confirmed)
+                throw new BadRequestException("This product delivery order can no longer be cancelled by the buyer.");
 
-        CancelOrder(order, buyerId, cancellationReason);
+            order.ProductListing = await context.LockProductListing(order.ProductListingId).SingleAsync();
 
-        await context.SaveChangesAsync();
-        await notificationService.NotifyProductDeliveryOrderStatusChangedAsync(order.Id);
+            CancelOrder(order, buyerId, cancellationReason);
 
-        return await GetDtoByIdAsync(order.Id);
+            await context.SaveChangesAsync();
+            await notificationService.NotifyProductDeliveryOrderStatusChangedAsync(order.Id);
+
+            return await GetDtoByIdAsync(order.Id);
+        });
     }
 
     private static void ApplySellerTransition(

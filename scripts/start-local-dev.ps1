@@ -6,24 +6,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. "$PSScriptRoot\local-dev-processes.ps1"
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $repoRoot "ServiceMarketplace.API"
-$webProject = Join-Path $repoRoot "ServiceMarketplace.UI.Web"
 $infrastructureProject = Join-Path $repoRoot "ServiceMarketplace.Infrastructure"
-
-$apiHttpsPort = 7147
-$webHttpsPort = 7241
-$apiHealthUrl = "https://localhost:$apiHttpsPort/health/ready"
-$apiLog = Join-Path $env:TEMP "servicemarketplace-api-local.log"
-$apiErrLog = Join-Path $env:TEMP "servicemarketplace-api-local.err.log"
-$webLog = Join-Path $env:TEMP "servicemarketplace-web-local.log"
-$webErrLog = Join-Path $env:TEMP "servicemarketplace-web-local.err.log"
-
-function Test-PortListening {
-    param([int]$Port)
-
-    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-}
 
 function Start-DotNetProject {
     param(
@@ -43,95 +30,126 @@ function Start-DotNetProject {
         -PassThru
 }
 
-function Wait-ForUrl {
-    param(
-        [string]$Url,
-        [int]$TimeoutSeconds = 45
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-        if ($curl) {
-            $statusCode = & curl.exe -k -s -o NUL -w "%{http_code}" $Url
-            $numericStatusCode = 0
-            if ([int]::TryParse($statusCode, [ref]$numericStatusCode) -and
-                $numericStatusCode -ge 200 -and
-                $numericStatusCode -lt 500) {
-                return $true
-            }
-        }
-        else {
-            $previousCertificateCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-            try {
-                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-                $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
-                if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
-                    return $true
-                }
-            }
-            catch {
-            }
-            finally {
-                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCertificateCallback
-            }
-        }
-
-        Start-Sleep -Seconds 2
-    }
-
-    return $false
-}
-
 if ($ApplyMigrations) {
     dotnet ef database update --project $infrastructureProject --startup-project $apiProject
 }
 
-if (-not $WebOnly) {
-    if (Test-PortListening -Port $apiHttpsPort) {
-        Write-Host "API already listening on https://localhost:$apiHttpsPort"
-    }
-    else {
-        $apiProcess = Start-DotNetProject `
-            -ProjectPath $apiProject `
-            -LaunchProfile "ServiceMarketplace.API" `
-            -OutLog $apiLog `
-            -ErrLog $apiErrLog
-
-        Write-Host "Started API process $($apiProcess.Id). Logs:"
-        Write-Host " - $apiLog"
-        Write-Host " - $apiErrLog"
-    }
-
-    if (Wait-ForUrl -Url $apiHealthUrl) {
-        Write-Host "API ready: $apiHealthUrl"
-    }
-    else {
-        Write-Host "API did not become ready within the timeout. Check logs:"
-        Write-Host " - $apiLog"
-        Write-Host " - $apiErrLog"
-    }
+if ($ApiOnly -and $WebOnly) {
+    throw "Use either -ApiOnly or -WebOnly, not both."
 }
 
-if (-not $ApiOnly) {
-    if (Test-PortListening -Port $webHttpsPort) {
-        Write-Host "Web UI already listening on https://localhost:$webHttpsPort"
+$state = Read-LocalDevState
+$services = Get-LocalDevServiceDefinitions
+if ($ApiOnly) {
+    $services = @($services | Where-Object { $_.Name -eq "API" })
+}
+elseif ($WebOnly) {
+    $services = @($services | Where-Object { $_.Name -eq "Web" })
+}
+
+foreach ($service in $services) {
+    $owners = @(Get-PortOwnersForService -Service $service)
+    $expectedPorts = @($service.HttpsPort, $service.HttpPort)
+    $staleScriptOwners = @($owners | Where-Object { $_.ScriptOwned -and $_.Port -notin $expectedPorts })
+    foreach ($owner in $staleScriptOwners) {
+        foreach ($processId in @($owner.ProcessId, $owner.LauncherPid) | Select-Object -Unique) {
+            if ($processId) {
+                $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+                if ($process) {
+                    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+                    Write-Host "$($service.Name) stale script-owned process stopped from legacy port $($owner.Port): PID $processId"
+                }
+            }
+        }
+    }
+
+    if ($staleScriptOwners) {
+        Start-Sleep -Seconds 1
+        $owners = @(Get-PortOwnersForService -Service $service)
+    }
+
+    $expectedOwners = @($owners | Where-Object { $_.Port -in $expectedPorts })
+    $blockingOwners = @($expectedOwners | Where-Object { -not $_.Matches })
+    if ($blockingOwners) {
+        Write-Host "$($service.Name) blocked: expected ports $($service.HttpsPort)/$($service.HttpPort) are owned by another process."
+        foreach ($owner in $blockingOwners) {
+            Write-Host " - Port $($owner.Port): PID $($owner.ProcessId) $($owner.ProcessName)"
+            Write-Host "   Path: $($owner.Executable)"
+            Write-Host "   Command: $($owner.CommandLine)"
+        }
+
+        throw "$($service.Name) startup blocked by non-ServiceMarketplace process."
+    }
+
+    $matchingOwners = @($expectedOwners | Where-Object { $_.Matches })
+    if ($matchingOwners) {
+        $httpsOwner = @($matchingOwners | Where-Object { $_.Port -eq $service.HttpsPort } | Select-Object -First 1)
+        $listenerPid = if ($httpsOwner) { [int]$httpsOwner.ProcessId } else { [int]$matchingOwners[0].ProcessId }
+        $launcherPid = if ($httpsOwner -and $httpsOwner.LauncherPid) { [int]$httpsOwner.LauncherPid } else { 0 }
+        $ownership = if ($matchingOwners | Where-Object { $_.ScriptOwned }) { "script-owned" } else { "external" }
+
+        Write-Host "$($service.Name) already running ($ownership)."
+        Write-Host " - URL: $($service.DisplayUrl)"
+        Write-Host " - HTTPS port: $($service.HttpsPort)"
+        Write-Host " - HTTP port: $($service.HttpPort)"
+        Write-Host " - Listener PID: $listenerPid"
+        if ($launcherPid) {
+            Write-Host " - Launcher PID: $launcherPid"
+            Set-LocalDevStateService -State $state -Entry (New-LocalDevStateEntry -Service $service -LauncherPid $launcherPid -ListenerPid $listenerPid -Status "AlreadyRunning")
+        }
+
+        if (Wait-ForUrl -Url $service.ReadyUrl) {
+            Write-Host " - Ready: $($service.ReadyUrl)"
+        }
+        else {
+            Write-Host " - Not ready within timeout. Logs:"
+            Write-Host "   $($service.OutLog)"
+            Write-Host "   $($service.ErrLog)"
+        }
+
+        continue
+    }
+
+    $entry = Get-LocalDevStateService -State $state -Name $service.Name
+    if ($entry -and -not (Test-StateServiceIsValid -Entry $entry -Service $service)) {
+        Remove-LocalDevStateService -State $state -Name $service.Name
+        $state = Read-LocalDevState
+        Write-Host "$($service.Name) stale local-dev state removed."
+    }
+
+    $process = Start-DotNetProject `
+        -ProjectPath $service.ProjectPath `
+        -LaunchProfile $service.LaunchProfile `
+        -OutLog $service.OutLog `
+        -ErrLog $service.ErrLog
+
+    Write-Host "$($service.Name) started."
+    Write-Host " - Launcher PID: $($process.Id)"
+    Write-Host " - HTTPS port: $($service.HttpsPort)"
+    Write-Host " - HTTP port: $($service.HttpPort)"
+    Write-Host " - Logs:"
+    Write-Host "   $($service.OutLog)"
+    Write-Host "   $($service.ErrLog)"
+
+    if (Wait-ForUrl -Url $service.ReadyUrl) {
+        $listenerPid = Get-LocalDevListenerPid -Service $service
+        Write-Host " - Listener PID: $listenerPid"
+        Write-Host " - Ready: $($service.ReadyUrl)"
+        Set-LocalDevStateService -State $state -Entry (New-LocalDevStateEntry -Service $service -LauncherPid $process.Id -ListenerPid $listenerPid -Status "Started")
     }
     else {
-        $webProcess = Start-DotNetProject `
-            -ProjectPath $webProject `
-            -LaunchProfile "ServiceMarketplace.UI.Web" `
-            -OutLog $webLog `
-            -ErrLog $webErrLog
-
-        Write-Host "Started Web UI process $($webProcess.Id). Logs:"
-        Write-Host " - $webLog"
-        Write-Host " - $webErrLog"
+        Set-LocalDevStateService -State $state -Entry (New-LocalDevStateEntry -Service $service -LauncherPid $process.Id -ListenerPid 0 -Status "StartedNotReady")
+        Write-Host " - Did not become ready within the timeout. Check logs:"
+        Write-Host "   $($service.OutLog)"
+        Write-Host "   $($service.ErrLog)"
     }
 }
 
 Write-Host ""
 Write-Host "Local URLs"
-Write-Host " - API Swagger: https://localhost:$apiHttpsPort/swagger"
-Write-Host " - API health:  $apiHealthUrl"
-Write-Host " - Web UI:      https://localhost:$webHttpsPort"
+$allServices = Get-LocalDevServiceDefinitions
+$apiService = @($allServices | Where-Object { $_.Name -eq "API" } | Select-Object -First 1)
+$webService = @($allServices | Where-Object { $_.Name -eq "Web" } | Select-Object -First 1)
+Write-Host " - API Swagger: https://localhost:$($apiService.HttpsPort)/swagger"
+Write-Host " - API health:  $($apiService.ReadyUrl)"
+Write-Host " - Web UI:      $($webService.DisplayUrl)"

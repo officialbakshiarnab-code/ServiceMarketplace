@@ -130,17 +130,19 @@ public sealed class ConversationService(
         await context.SaveChangesAsync();
 
         var participantUserIds = await GetParticipantUserIdsAsync(conversationId);
-        await realtimeNotifier.MessageCreatedAsync(new ConversationRealtimeUpdateDto
+        await context.PublishAfterCommitAsync("SignalR.MessageCreated", conversationId, () => realtimeNotifier.MessageCreatedAsync(new ConversationRealtimeUpdateDto
         {
             ConversationId = conversationId,
             MessageId = message.Id,
             ParticipantUserIds = participantUserIds
-        });
+        }));
 
         foreach (var userId in participantUserIds.Where(id => id != senderUserId))
-            await realtimeNotifier.UnreadCountChangedAsync(userId, await GetUnreadCountAsync(userId));
+            await context.PublishAfterCommitAsync("SignalR.UnreadCountChanged", conversationId, async () =>
+                await realtimeNotifier.UnreadCountChangedAsync(userId, await GetUnreadCountAsync(userId)));
 
-        await SendPushNotificationsAsync(conversationId, message.Id, participantUserIds.Where(id => id != senderUserId));
+        await context.PublishAfterCommitAsync("Push.MessageCreated", conversationId, () =>
+            SendPushNotificationsAsync(conversationId, message.Id, participantUserIds.Where(id => id != senderUserId)));
 
         _ = participant;
         return (await ToMessageDtosAsync([message], senderUserId)).Single();
@@ -163,7 +165,8 @@ public sealed class ConversationService(
         await context.SaveChangesAsync();
 
         var unread = await CountUnreadAsync(conversationId, userId, participant.LastReadAt);
-        await realtimeNotifier.UnreadCountChangedAsync(userId, await GetUnreadCountAsync(userId));
+        await context.PublishAfterCommitAsync("SignalR.UnreadCountChanged", conversationId, async () =>
+            await realtimeNotifier.UnreadCountChangedAsync(userId, await GetUnreadCountAsync(userId)));
 
         return new ConversationReadResultDto
         {
@@ -188,111 +191,120 @@ public sealed class ConversationService(
 
     public async Task<Guid> EnsureServiceOrderConversationAsync(Guid serviceOrderId, string? systemMessage = null, string? systemMessageKey = null)
     {
-        var existing = await context.Conversations
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.ContextType == ConversationContextType.ServiceOrder && c.ServiceOrderId == serviceOrderId);
-
-        if (existing != null)
+        return await context.ExecuteAtomicAsync(async () =>
         {
+            var existing = await context.Conversations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.ContextType == ConversationContextType.ServiceOrder && c.ServiceOrderId == serviceOrderId);
+
+            if (existing != null)
+            {
+                if (!string.IsNullOrWhiteSpace(systemMessage) && !string.IsNullOrWhiteSpace(systemMessageKey))
+                    await AddSystemMessageIfMissingAsync(existing.Id, systemMessage, systemMessageKey);
+
+                return existing.Id;
+            }
+
+            var order = await context.ServiceOrders
+                .Include(o => o.ServiceRequest)
+                .FirstOrDefaultAsync(o => o.Id == serviceOrderId)
+                ?? throw new NotFoundException("Service order not found.");
+
+            var conversation = new Conversation
+            {
+                ContextType = ConversationContextType.ServiceOrder,
+                ServiceOrderId = order.Id,
+                Status = ConversationStatus.Active,
+                Subject = NormalizeSubject(order.ServiceRequest.Title),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            conversation.Participants.Add(new ConversationParticipant
+            {
+                UserId = order.CustomerId,
+                ParticipantKind = ConversationParticipantKind.Customer,
+                JoinedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            conversation.Participants.Add(new ConversationParticipant
+            {
+                UserId = order.ProviderId,
+                ParticipantKind = ConversationParticipantKind.Provider,
+                JoinedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            context.Conversations.Add(conversation);
+            await context.SaveChangesAsync();
+
             if (!string.IsNullOrWhiteSpace(systemMessage) && !string.IsNullOrWhiteSpace(systemMessageKey))
-                await AddSystemMessageIfMissingAsync(existing.Id, systemMessage, systemMessageKey);
+                await AddSystemMessageIfMissingAsync(conversation.Id, systemMessage, systemMessageKey);
 
-            return existing.Id;
-        }
-
-        var order = await context.ServiceOrders
-            .Include(o => o.ServiceRequest)
-            .FirstOrDefaultAsync(o => o.Id == serviceOrderId)
-            ?? throw new NotFoundException("Service order not found.");
-
-        var conversation = new Conversation
-        {
-            ContextType = ConversationContextType.ServiceOrder,
-            ServiceOrderId = order.Id,
-            Status = ConversationStatus.Active,
-            Subject = NormalizeSubject(order.ServiceRequest.Title),
-            CreatedAt = DateTime.UtcNow
-        };
-
-        conversation.Participants.Add(new ConversationParticipant
-        {
-            UserId = order.CustomerId,
-            ParticipantKind = ConversationParticipantKind.Customer,
-            JoinedAt = DateTime.UtcNow,
-            CreatedAt = DateTime.UtcNow
+            return conversation.Id;
         });
-
-        conversation.Participants.Add(new ConversationParticipant
-        {
-            UserId = order.ProviderId,
-            ParticipantKind = ConversationParticipantKind.Provider,
-            JoinedAt = DateTime.UtcNow,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        context.Conversations.Add(conversation);
-        await context.SaveChangesAsync();
-
-        if (!string.IsNullOrWhiteSpace(systemMessage) && !string.IsNullOrWhiteSpace(systemMessageKey))
-            await AddSystemMessageIfMissingAsync(conversation.Id, systemMessage, systemMessageKey);
-
-        return conversation.Id;
     }
 
     public async Task AddServiceOrderSystemMessageAsync(Guid serviceOrderId, string body, string eventKey)
     {
-        var conversationId = await EnsureServiceOrderConversationAsync(serviceOrderId);
-        await AddSystemMessageIfMissingAsync(conversationId, body, $"service-order:{serviceOrderId:N}:{eventKey}");
+        await context.ExecuteAtomicAsync(async () =>
+        {
+            var conversationId = await EnsureServiceOrderConversationAsync(serviceOrderId);
+            await AddSystemMessageIfMissingAsync(conversationId, body, $"service-order:{serviceOrderId:N}:{eventKey}");
+        });
     }
 
     public async Task<Guid> SyncServiceOrderMessagesAsync(Guid serviceOrderId)
     {
-        var conversationId = await EnsureServiceOrderConversationAsync(serviceOrderId);
-
-        var legacyMessages = await context.ServiceOrderMessages
-            .AsNoTracking()
-            .Where(m => m.ServiceOrderId == serviceOrderId)
-            .OrderBy(m => m.CreatedAt)
-            .ThenBy(m => m.Id)
-            .ToListAsync();
-
-        if (legacyMessages.Count == 0)
-            return conversationId;
-
-        var legacyClientMessageIds = legacyMessages
-            .Select(m => ToLegacyClientMessageId(m.Id))
-            .ToList();
-
-        var existingClientMessageIds = await context.Messages
-            .AsNoTracking()
-            .Where(m => m.ConversationId == conversationId &&
-                        m.ClientMessageId != null &&
-                        legacyClientMessageIds.Contains(m.ClientMessageId))
-            .Select(m => m.ClientMessageId!)
-            .ToListAsync();
-
-        var existing = existingClientMessageIds.ToHashSet(StringComparer.Ordinal);
-        foreach (var legacyMessage in legacyMessages)
+        return await context.ExecuteAtomicAsync(async () =>
         {
-            var clientMessageId = ToLegacyClientMessageId(legacyMessage.Id);
-            if (existing.Contains(clientMessageId))
-                continue;
+            var conversationId = await EnsureServiceOrderConversationAsync(serviceOrderId);
 
-            context.Messages.Add(new Message
+            var legacyMessages = await context.ServiceOrderMessages
+                .AsNoTracking()
+                .Where(m => m.ServiceOrderId == serviceOrderId)
+                .OrderBy(m => m.CreatedAt)
+                .ThenBy(m => m.Id)
+                .ToListAsync();
+
+            if (legacyMessages.Count == 0)
+                return conversationId;
+
+            var legacyClientMessageIds = legacyMessages
+                .Select(m => ToLegacyClientMessageId(m.Id))
+                .ToList();
+
+            var existingClientMessageIds = await context.Messages
+                .AsNoTracking()
+                .Where(m => m.ConversationId == conversationId &&
+                            m.ClientMessageId != null &&
+                            legacyClientMessageIds.Contains(m.ClientMessageId))
+                .Select(m => m.ClientMessageId!)
+                .ToListAsync();
+
+            var existing = existingClientMessageIds.ToHashSet(StringComparer.Ordinal);
+            foreach (var legacyMessage in legacyMessages)
             {
-                ConversationId = conversationId,
-                SenderUserId = legacyMessage.SenderUserId,
-                Type = MessageType.Text,
-                Body = NormalizeTextMessage(legacyMessage.Body),
-                ClientMessageId = clientMessageId,
-                CreatedAt = legacyMessage.CreatedAt,
-                UpdatedAt = legacyMessage.UpdatedAt
-            });
-        }
+                var clientMessageId = ToLegacyClientMessageId(legacyMessage.Id);
+                if (existing.Contains(clientMessageId))
+                    continue;
 
-        await context.SaveChangesAsync();
-        await RefreshLastMessageAsync(conversationId);
-        return conversationId;
+                context.Messages.Add(new Message
+                {
+                    ConversationId = conversationId,
+                    SenderUserId = legacyMessage.SenderUserId,
+                    Type = MessageType.Text,
+                    Body = NormalizeTextMessage(legacyMessage.Body),
+                    ClientMessageId = clientMessageId,
+                    CreatedAt = legacyMessage.CreatedAt,
+                    UpdatedAt = legacyMessage.UpdatedAt
+                });
+            }
+
+            await context.SaveChangesAsync();
+            await RefreshLastMessageAsync(conversationId);
+            return conversationId;
+        });
     }
 
     private async Task AddSystemMessageIfMissingAsync(Guid conversationId, string body, string clientMessageId)
@@ -324,12 +336,12 @@ public sealed class ConversationService(
         await context.SaveChangesAsync();
 
         var participantUserIds = await GetParticipantUserIdsAsync(conversationId);
-        await realtimeNotifier.MessageCreatedAsync(new ConversationRealtimeUpdateDto
+        await context.PublishAfterCommitAsync("SignalR.MessageCreated", conversationId, () => realtimeNotifier.MessageCreatedAsync(new ConversationRealtimeUpdateDto
         {
             ConversationId = conversationId,
             MessageId = message.Id,
             ParticipantUserIds = participantUserIds
-        });
+        }));
     }
 
     private async Task RefreshLastMessageAsync(Guid conversationId)

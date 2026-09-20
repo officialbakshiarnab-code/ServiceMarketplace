@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using ServiceMarketplace.UI.Shared.Auth;
+using ServiceMarketplace.UI.Shared.Auth.Registration;
 using ServiceMarketplace.UI.Shared.Configuration;
 using ServiceMarketplace.UI.Shared.Realtime;
 using ServiceMarketplace.UI.Shared.Requests;
@@ -50,6 +51,12 @@ public static class MauiProgram
         builder.Services.AddAuthorizationCore();
 
         // Configure HTTP client handler that automatically attaches JWT tokens
+        builder.Services.AddScoped<SessionTokenRefreshService>();
+        builder.Services.AddScoped(sp => new RefreshTokenTransport(new HttpClient
+        {
+            BaseAddress = ApiBaseUrlResolver.GetApiBaseUri(sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()),
+            Timeout = TimeSpan.FromSeconds(30)
+        }));
         builder.Services.AddScoped<AuthorizingHttpClientHandler>();
 
         // Configure HTTP client for API calls with platform identification
@@ -90,6 +97,11 @@ public static class MauiProgram
         builder.Services.AddScoped<AuthState>();
         builder.Services.AddScoped<AdminAccessGuard>();
         builder.Services.AddScoped<IRegistrationIntentStorage, MemoryRegistrationIntentStorage>();
+        builder.Services.AddScoped<IRegistrationConversationService, RegistrationConversationService>();
+        builder.Services.AddScoped<IRegistrationPayloadMapper, RegistrationPayloadMapper>();
+        builder.Services.AddScoped<ISpeechInputService, UnavailableSpeechInputService>();
+        builder.Services.AddScoped<IRegistrationLocationService, UnavailableRegistrationLocationService>();
+        builder.Services.AddScoped<IReverseGeocodingService, UnavailableReverseGeocodingService>();
 
         // Configure auth state initialization
         builder.Services.AddScoped<AuthenticationStateInitializer>();

@@ -1,0 +1,284 @@
+.registration-bot {
+    width: min(780px, 100%);
+    margin: 0 auto;
+    padding: 1.5rem 1.5rem calc(var(--app-footer-height, 6.5rem) + 1.5rem);
+    display: grid;
+    gap: 1rem;
+}
+
+.registration-language {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    margin: 1rem 0;
+    max-width: 18rem;
+}
+
+.registration-language label {
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.bot-topbar,
+.bot-question {
+    border: 1px solid #d8e2ef;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 1.25rem;
+}
+
+.bot-topbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+}
+
+.bot-topbar h1,
+.question-copy h2 {
+    margin: 0;
+}
+
+.question-copy {
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+}
+
+.question-copy span {
+    color: #0b5ed7;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.bot-topbar p,
+.question-copy p {
+    margin: 0.35rem 0 0;
+    color: #5d6b82;
+}
+
+.eyebrow {
+    margin: 0 0 0.25rem;
+    color: #0b5ed7;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.bot-progress {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.bot-progress span {
+    min-height: 2rem;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    color: #475569;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 0.25rem 0.75rem;
+}
+
+.bot-progress span.active {
+    border-color: #0b5ed7;
+    background: #0b5ed7;
+    color: #ffffff;
+}
+
+.bot-progress span.complete {
+    border-color: #15803d;
+    background: #ecfdf3;
+    color: #15803d;
+}
+
+.bot-question {
+    display: grid;
+    gap: 1rem;
+    min-height: 25rem;
+}
+
+.option-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.option-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.bot-option {
+    border: 1px solid #d8e2ef;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 1rem;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    cursor: pointer;
+    position: relative;
+}
+
+.bot-option input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.bot-option:hover,
+.bot-option:focus-within {
+    border-color: #7aa7df;
+    background: #f3f8ff;
+}
+
+.bot-option.selected {
+    border-color: #0b5ed7;
+    background: #e9f2ff;
+}
+
+.bot-option.selected::after {
+    content: "Selected";
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+}
+
+.bot-option input:disabled {
+    cursor: default;
+}
+
+.bot-option:has(input:disabled)::after {
+    content: "Included";
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+}
+
+.bot-option span {
+    color: #5d6b82;
+    padding-right: 5rem;
+}
+
+.bot-input,
+.bot-textarea {
+    max-width: 34rem;
+}
+
+.password-input {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    max-width: 40rem;
+}
+
+.voice-row,
+.location-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    color: #5d6b82;
+}
+
+.upload-box {
+    border: 1px dashed #bfd6f5;
+    border-radius: 8px;
+    background: #f8fbff;
+    padding: 1rem;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.upload-box p {
+    margin: 0;
+    color: #5d6b82;
+}
+
+.bot-review {
+    display: grid;
+    gap: 1rem;
+}
+
+.review-section {
+    border: 1px solid #e4ebf5;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.review-section h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+}
+
+.review-row {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.8fr) minmax(0, 1.4fr) auto;
+    gap: 1rem;
+    align-items: start;
+    padding: 0.6rem 0;
+    border-top: 1px solid #eef2f7;
+}
+
+.review-row:first-of-type {
+    border-top: 0;
+}
+
+.review-row span {
+    color: #5d6b82;
+}
+
+.review-row strong {
+    overflow-wrap: anywhere;
+}
+
+.bot-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    position: relative;
+    z-index: 1;
+}
+
+@media (max-width: 760px) {
+    .registration-bot {
+        padding: 1rem 1rem calc(var(--app-footer-height-mobile, 8.75rem) + 1rem);
+    }
+
+    .bot-topbar,
+    .bot-actions,
+    .password-input,
+    .voice-row,
+    .location-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .option-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .review-row {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+}
